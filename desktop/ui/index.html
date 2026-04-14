@@ -1,9 +1,114 @@
 <!DOCTYPE html>
-<html>
-<head><title>Seedling</title></head>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seedling</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #08090e;
+            color: #f1f5f9;
+            font-family: 'Inter', -apple-system, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            user-select: none;
+        }
+
+        .orb-wrap {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .orb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #6366f1;
+            box-shadow: 0 0 24px rgba(99,102,241,0.6);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .ring {
+            position: absolute;
+            border: 1px solid rgba(99,102,241,0.25);
+            border-radius: 50%;
+            animation: expand 2s ease-out infinite;
+        }
+        .ring:nth-child(2) { width: 40px; height: 40px; animation-delay: 0s; }
+        .ring:nth-child(3) { width: 60px; height: 60px; animation-delay: 0.4s; }
+        .ring:nth-child(4) { width: 80px; height: 80px; animation-delay: 0.8s; }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.85; }
+        }
+        @keyframes expand {
+            0% { opacity: 0.8; transform: scale(0.6); }
+            100% { opacity: 0; transform: scale(1.4); }
+        }
+
+        .label {
+            font-size: 1.1rem;
+            font-weight: 500;
+            letter-spacing: -0.01em;
+            color: #f1f5f9;
+        }
+
+        .status {
+            font-size: 0.8rem;
+            color: #475569;
+            font-weight: 300;
+            letter-spacing: 0.02em;
+            min-height: 1.2em;
+        }
+    </style>
+</head>
 <body>
-  <!-- This file exists only so Tauri's build system has a frontendDist target. -->
-  <!-- The actual UI is served by the Supervisor FastAPI backend on port 7000.  -->
-  <!-- In dev mode tauri opens an External URL directly to localhost:7000.       -->
+    <div class="orb-wrap">
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="orb"></div>
+    </div>
+    <div class="label">Seedling</div>
+    <div class="status" id="status">Starting supervisor...</div>
+
+    <script>
+        const status = document.getElementById('status');
+        const PORT = 7000;
+        let dots = 0;
+
+        async function poll() {
+            dots = (dots + 1) % 4;
+            status.textContent = 'Starting supervisor' + '.'.repeat(dots);
+
+            try {
+                const r = await fetch(`http://127.0.0.1:${PORT}/`, { signal: AbortSignal.timeout(800) });
+                if (r.ok) {
+                    status.textContent = 'Ready!';
+                    setTimeout(() => {
+                        window.location.href = `http://127.0.0.1:${PORT}/`;
+                    }, 150);
+                    return;
+                }
+            } catch {}
+
+            setTimeout(poll, 600);
+        }
+
+        poll();
+    </script>
 </body>
 </html>

@@ -85,15 +85,36 @@ class Supervisor:
         tag = source.upper()
         print(f"[{tag}] {msg}")
 
+    def _ensure_venv(self, label, src_dir, python_path):
+        """Create and populate a module's venv if it doesn't already exist."""
+        if os.path.exists(python_path):
+            return
+        self.log(f"{label} venv missing — provisioning now...", source="supervisor")
+        reqs = os.path.join(src_dir, "requirements.txt")
+        venv_dir = os.path.join(src_dir, "venv")
+
+        subprocess.run(
+            [sys.executable, "-m", "venv", venv_dir],
+            check=True, capture_output=True
+        )
+        subprocess.run(
+            [python_path, "-m", "pip", "install", "-r", reqs, "-q"],
+            check=True, capture_output=True
+        )
+        if label == "Operator":
+            subprocess.run(
+                [python_path, "-m", "playwright", "install", "chromium"],
+                check=True, capture_output=True
+            )
+        self.log(f"{label} venv ready.", source="supervisor")
+
     def initialize(self):
         self.base_dir = tempfile.mkdtemp(prefix="zen_stack_")
         self.log(f"Stack workspace: {self.base_dir}")
 
-        # Verify venvs exist
-        for label, python_path in [("ZenCode", ZENCODE_PYTHON), ("Operator", OPERATOR_PYTHON)]:
-            if not os.path.exists(python_path):
-                self.log(f"{label} venv not found at {python_path}. Run the module's run.sh first to create it.", level="error")
-                raise RuntimeError(f"Missing venv: {python_path}")
+        # Auto-provision venvs if not already set up
+        self._ensure_venv("ZenCode", ZENCODE_SRC, ZENCODE_PYTHON)
+        self._ensure_venv("Operator", OPERATOR_SRC, OPERATOR_PYTHON)
 
         # Create sandbox work directories
         sandbox_a = os.path.join(self.base_dir, "zencode_a_workspace")

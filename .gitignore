@@ -48,5 +48,7 @@ operator/current_view.png
 *.swo
 
 # Tauri
-desktop/target/
+desktop/src-tauri/target/
 desktop/node_modules/
+desktop/src-tauri/icons/icon_source.png
+desktop/src-tauri/icons/source_true.png

@@ -1,0 +1,23 @@
+[package]
+name = "seedling"
+version = "0.1.0"
+description = "Seedling — ZenCode Supervisor Desktop"
+authors = ["jon-vs-moloch"]
+edition = "2021"
+rust-edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "seedling_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-http = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

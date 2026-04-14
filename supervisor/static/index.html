@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenCode Supervisor</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="bg-grid"></div>
+
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo-mark">
+                    <div class="logo-orb"></div>
+                    <div class="logo-ring"></div>
+                </div>
+                <div class="header-text">
+                    <h1>ZenCode Supervisor</h1>
+                    <p class="header-sub">Sandboxed Self-Improvement System</p>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="system-status" id="systemStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Initializing...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Topology Bar -->
+        <section class="topology-bar">
+            <div class="topo-node" data-process="operator_a">
+                <div class="topo-icon">🅰</div>
+                <div class="topo-label">Meta Operator</div>
+                <div class="topo-status" id="topo_operator_a">—</div>
+            </div>
+            <div class="topo-arrow">→</div>
+            <div class="topo-node" data-process="zencode_a">
+                <div class="topo-icon">⚡</div>
+                <div class="topo-label">ZenCode A</div>
+                <div class="topo-status" id="topo_zencode_a">—</div>
+            </div>
+            <div class="topo-arrow">→ patches →</div>
+            <div class="topo-node target-node">
+                <div class="topo-icon">🎯</div>
+                <div class="topo-label">operator/</div>
+            </div>
+            <div class="topo-divider"></div>
+            <div class="topo-node" data-process="operator_b">
+                <div class="topo-icon">🅱</div>
+                <div class="topo-label">Ground Operator</div>
+                <div class="topo-status" id="topo_operator_b">—</div>
+            </div>
+            <div class="topo-arrow">→</div>
+            <div class="topo-node" data-process="zencode_b">
+                <div class="topo-icon">⚡</div>
+                <div class="topo-label">ZenCode B</div>
+                <div class="topo-status" id="topo_zencode_b">—</div>
+            </div>
+            <div class="topo-arrow">→ patches →</div>
+            <div class="topo-node target-node">
+                <div class="topo-icon">🎯</div>
+                <div class="topo-label">zencode/</div>
+            </div>
+        </section>
+
+        <!-- Operator Panels -->
+        <section class="panels">
+            <div class="operator-card glass" id="panel_operator_a">
+                <div class="card-header">
+                    <div class="card-title">
+                        <h2>Meta Operator (A)</h2>
+                        <span class="port-badge">:9000</span>
+                    </div>
+                    <div class="card-controls">
+                        <button class="ctrl-btn restart-btn" data-process="operator_a" title="Restart">↻</button>
+                        <button class="ctrl-btn stop-btn" data-process="operator_a" title="Stop">■</button>
+                    </div>
+                </div>
+                <div class="card-meta">
+                    <span class="meta-label">GOAL</span>
+                    <span class="meta-value">Improve the Operator codebase</span>
+                </div>
+                <div class="viewport">
+                    <img id="img_operator_a" src="" alt="Awaiting screenshot..." />
+                    <div class="viewport-overlay" id="overlay_operator_a">No screenshot yet</div>
+                </div>
+            </div>
+
+            <div class="operator-card glass" id="panel_operator_b">
+                <div class="card-header">
+                    <div class="card-title">
+                        <h2>Ground Operator (B)</h2>
+                        <span class="port-badge">:9001</span>
+                    </div>
+                    <div class="card-controls">
+                        <button class="ctrl-btn restart-btn" data-process="operator_b" title="Restart">↻</button>
+                        <button class="ctrl-btn stop-btn" data-process="operator_b" title="Stop">■</button>
+                    </div>
+                </div>
+                <div class="card-meta">
+                    <span class="meta-label">GOAL</span>
+                    <span class="meta-value">Improve the ZenCode codebase</span>
+                </div>
+                <div class="viewport">
+                    <img id="img_operator_b" src="" alt="Awaiting screenshot..." />
+                    <div class="viewport-overlay" id="overlay_operator_b">No screenshot yet</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Logs Panel -->
+        <section class="logs-section glass">
+            <div class="logs-header">
+                <h2>System Telemetry</h2>
+                <div class="log-filters">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="supervisor">Supervisor</button>
+                    <button class="filter-btn" data-filter="operator_a">Op A</button>
+                    <button class="filter-btn" data-filter="operator_b">Op B</button>
+                    <button class="filter-btn" data-filter="zencode_a">Zen A</button>
+                    <button class="filter-btn" data-filter="zencode_b">Zen B</button>
+                </div>
+            </div>
+            <div class="logs-body" id="logsBody">
+                <div class="log-entry log-supervisor">
+                    <span class="log-ts">--:--:--</span>
+                    <span class="log-source">SUPERVISOR</span>
+                    <span class="log-msg">Waiting for system telemetry...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Updates Panel -->
+        <section class="updates-section glass" id="updatesSection" style="display: none;">
+            <div class="updates-header">
+                <h2>Update Artifacts Detected</h2>
+            </div>
+            <div class="updates-body" id="updatesBody"></div>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

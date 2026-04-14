@@ -1,0 +1,48 @@
+:root {
+    --bg-dark: #0f111a;
+    --card-bg: #1e1e2e;
+    --border: #2c2e3e;
+    --primary: #6366f1;
+    --primary-dim: rgba(99, 102, 241, 0.15);
+    --success: #10b981;
+    --error: #ef4444;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 2rem;
+}
+.dash-container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+.topbar { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); padding-bottom: 1rem; }
+.title-group { display: flex; align-items: center; gap: 1rem; }
+.role-badge {
+    background: var(--primary-dim);
+    color: var(--primary);
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+.status-badge { background: var(--error); padding: 0.5rem 1rem; border-radius: 9999px; font-weight: bold; font-size: 0.85rem; letter-spacing: 0.05em; }
+.status-badge.running { background: var(--success); }
+.main-content { display: grid; grid-template-columns: 2fr 1fr; gap: 2rem; }
+.card, .vision-panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+.vision-panel h2 { margin-bottom: 1rem; font-size: 1.2rem; }
+.image-wrapper { width: 100%; border-radius: 8px; overflow: hidden; background: #000; display: flex; justify-content: center; align-items: center; min-height: 400px; }
+.image-wrapper img { max-width: 100%; object-fit: contain; }
+.control-panel { display: flex; flex-direction: column; gap: 1.5rem; }
+.input-group { display: flex; flex-direction: column; gap: 0.5rem; margin: 1rem 0; }
+.input-group label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+.input-group textarea { background: rgba(0,0,0,0.2); border: 1px solid var(--border); color: #fff; padding: 1rem; border-radius: 8px; font-family: inherit; font-size: 0.95rem; resize: vertical; }
+.action-row { display: flex; gap: 1rem; }
+.btn { flex: 1; padding: 1rem; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; color: white; display: flex; justify-content: center; align-items: center;}
+.btn.play { background: var(--primary); }
+.btn.play:hover { background: #4f46e5; }
+.btn.pause { background: var(--error); }
+.btn.pause:hover { background: #dc2626; }
+.telemetry { font-family: monospace; font-size: 0.85rem; color: #a6accd; background: #000; padding: 1rem; border-radius: 8px; min-height: 150px; overflow-y: auto; margin-top: 1rem;}

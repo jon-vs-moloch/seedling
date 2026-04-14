@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zen Agent</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="stars"></div>
+    <div id="stars2"></div>
+    <div id="stars3"></div>
+    
+    <div class="app-container">
+        <!-- Setup Screen -->
+        <main id="setupScreen" class="glass-panel slide-up">
+            <div class="logo-container">
+                <div class="zen-logo">
+                    <div class="orb"></div>
+                    <div class="rings">
+                        <div class="ring r1"></div>
+                        <div class="ring r2"></div>
+                        <div class="ring r3"></div>
+                    </div>
+                </div>
+                <h1>Zen Agent OS</h1>
+                <p class="subtitle">A sandboxed minimalist coding agent</p>
+            </div>
+
+            <form id="setupForm" class="setup-form">
+                <div class="input-group">
+                    <label for="endpointUrl">Inference Endpoint URL</label>
+                    <input type="url" id="endpointUrl" placeholder="e.g. http://127.0.0.1:1234/v1" required>
+                    <span class="hint">OpenAI-compatible endpoints (LM Studio, LocalAI, vLLM, etc.)</span>
+                </div>
+                
+                <button type="button" id="probeBtn" class="primary-btn pulse-glow">
+                    <span class="btn-text">Connect & Probe</span>
+                    <div class="loader hidden" id="probeLoader"></div>
+                </button>
+
+                <div id="modelSelection" class="input-group hidden fade-in">
+                    <label for="modelSelect">Select Model</label>
+                    <div class="select-wrapper">
+                        <select id="modelSelect"></select>
+                    </div>
+                </div>
+
+                <button type="submit" id="startBtn" class="primary-btn hidden slide-up">
+                    Initialize Workspace
+                </button>
+                
+                <div id="errorMsg" class="error-msg"></div>
+            </form>
+        </main>
+
+        <!-- Main Workspace (Hidden initially) -->
+        <main id="workspaceScreen" class="workspace hidden">
+            <!-- Left Panel: Chat & Supervisor -->
+            <div class="side-panel chat-panel glass-panel">
+                <div class="panel-header">
+                    <h2>Supervisor Chat</h2>
+                    <div class="status-indicator live"></div>
+                </div>
+                <div class="chat-history" id="chatHistory">
+                    <div class="message system-message">
+                        <div class="avatar system-avatar">⚡</div>
+                        <div class="msg-content">
+                            <p>Agent sandbox initialized. System is ready.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input-container">
+                    <textarea id="taskInput" placeholder="Describe the task... (e.g. 'write a ping script using curl')"></textarea>
+                    <button id="sendTaskBtn" class="icon-btn">
+                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Panel: Sandbox Visualization -->
+            <div class="side-panel data-panel glass-panel">
+                <div class="panel-header">
+                    <h2>Sandbox State</h2>
+                    <div class="toggle-group">
+                        <button class="toggle-btn active" data-view="terminal">Terminal</button>
+                        <button class="toggle-btn" data-view="files">Files</button>
+                    </div>
+                    <button id="shipUpdateBtn" class="primary-btn" style="padding: 0.5rem 1rem; font-size: 0.8rem;">📦 Ship Update</button>
+                </div>
+                <div class="view-content active" id="terminalView">
+                    <div class="mock-terminal">
+                        <div class="term-header">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                            <div class="term-title">sandbox@zen</div>
+                        </div>
+                        <div class="term-body" id="termOutput"></div>
+                    </div>
+                </div>
+                <div class="view-content" id="filesView" style="display: none;">
+                    <div class="file-tree" id="fileTree">
+                        <!-- File list injected here -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>

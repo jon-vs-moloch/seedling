@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operator Control</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dash-container">
+        <header class="topbar">
+            <div class="title-group">
+                <h1>Operator Control Node</h1>
+                <span class="role-badge" id="roleBadge">—</span>
+            </div>
+            <div class="status-badge" id="statusBadge">PAUSED</div>
+        </header>
+
+        <div class="main-content">
+            <div class="vision-panel">
+                <h2>Live ZenCode View</h2>
+                <div class="image-wrapper">
+                    <img id="liveView" src="/api/image" alt="Awaiting Vision..." />
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <div class="card">
+                    <h2>Command Directive</h2>
+                    <div class="input-group">
+                        <label for="goalInput">Current Goal</label>
+                        <textarea id="goalInput" rows="4">Use ZenCode to improve ZenCode</textarea>
+                    </div>
+                    <div class="action-row">
+                        <button id="toggleBtn" class="btn play">Start Operator Loop</button>
+                    </div>
+                </div>
+
+                <div class="card terminal-card">
+                    <h2>Operator Telemetry</h2>
+                    <div id="telemetryOut" class="telemetry">
+                        > Operator standing by...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

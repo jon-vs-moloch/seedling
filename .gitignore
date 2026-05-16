@@ -28,6 +28,7 @@ operator_telemetry.log
 *.tmp
 *.tar.gz
 *.gz
+.seedling_runtime/
 
 # Supervisor stack workspace (ephemeral)
 /tmp/zen_stack_*/

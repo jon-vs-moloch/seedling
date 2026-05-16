@@ -3,6 +3,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const systemStatus = document.getElementById('systemStatus');
     const updatesSection = document.getElementById('updatesSection');
     const updatesBody = document.getElementById('updatesBody');
+    const resetBtn = document.getElementById('resetBtn');
+    const sandboxMode = document.getElementById('sandboxMode');
+    const networkPolicy = document.getElementById('networkPolicy');
+    const artifactPolicy = document.getElementById('artifactPolicy');
 
     let logOffset = 0;
     let activeFilter = 'all';
@@ -16,6 +20,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const r = await fetch('/api/topology');
             const data = await r.json();
             const procs = data.processes;
+            if (data.safety) {
+                sandboxMode.textContent = data.safety.container_runtime
+                    ? `${data.safety.sandbox_mode} (${data.safety.container_runtime.split('/').pop()})`
+                    : `${data.safety.sandbox_mode} (runtime missing)`;
+                networkPolicy.textContent = data.safety.network;
+                artifactPolicy.textContent = data.safety.artifact_policy;
+            }
 
             let allRunning = true;
             for (const [name, info] of Object.entries(procs)) {
@@ -132,12 +143,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 for (const u of data.updates) {
                     const div = document.createElement('div');
                     div.className = 'update-entry';
+                    const applyButton = u.status === 'quarantined'
+                        ? `<button class="apply-update-btn" data-update="${u.id}">Apply</button>`
+                        : '';
                     div.innerHTML = `
-                        <span class="update-icon">📦</span>
+                        <span class="update-icon">Artifact</span>
                         <span class="update-label">
-                            <strong>${u.source}</strong> produced an artifact targeting
-                            <strong>${u.target_codebase}/</strong>
+                            <strong>${escapeHtml(u.source)}</strong> produced
+                            <strong>${escapeHtml(u.id)}</strong> for
+                            <strong>${escapeHtml(u.target_codebase)}/</strong>
+                            <span class="update-status">${escapeHtml(u.status)}</span>
                         </span>
+                        ${applyButton}
                     `;
                     updatesBody.appendChild(div);
                 }
@@ -163,6 +180,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = btn.dataset.process;
             await fetch(`/api/process/${name}/stop`, { method: 'POST' });
         });
+    });
+
+    updatesBody.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.apply-update-btn');
+        if (!btn) return;
+        btn.disabled = true;
+        btn.textContent = 'Applying';
+        await fetch(`/api/updates/${btn.dataset.update}/apply`, { method: 'POST' });
+        knownUpdates = 0;
+        await pollUpdates();
+    });
+
+    resetBtn.addEventListener('click', async () => {
+        resetBtn.disabled = true;
+        resetBtn.textContent = 'Resetting';
+        await fetch('/api/reset', { method: 'POST' });
+        logOffset = 0;
+        logsBody.innerHTML = '';
+        knownUpdates = 0;
+        setTimeout(() => {
+            resetBtn.disabled = false;
+            resetBtn.textContent = 'Reset';
+        }, 1000);
     });
 
     // -------------------------------------------------------

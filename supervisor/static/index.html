@@ -26,12 +26,28 @@
                 </div>
             </div>
             <div class="header-right">
+                <button class="reset-btn" id="resetBtn" title="Reset runtime">Reset</button>
                 <div class="system-status" id="systemStatus">
                     <span class="status-dot"></span>
                     <span class="status-text">Initializing...</span>
                 </div>
             </div>
         </header>
+
+        <section class="safety-bar glass" id="safetyBar">
+            <div>
+                <span class="safety-label">Sandbox</span>
+                <span class="safety-value" id="sandboxMode">checking</span>
+            </div>
+            <div>
+                <span class="safety-label">Network</span>
+                <span class="safety-value" id="networkPolicy">checking</span>
+            </div>
+            <div>
+                <span class="safety-label">Artifacts</span>
+                <span class="safety-value" id="artifactPolicy">quarantine</span>
+            </div>
+        </section>
 
         <!-- Topology Bar -->
         <section class="topology-bar">

@@ -18,6 +18,9 @@ import subprocess
 import asyncio
 import time
 import json
+import tarfile
+import hashlib
+import uuid
 from datetime import datetime
 from fastapi import FastAPI, Request, Query
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +37,10 @@ ZENCODE_PYTHON = os.path.join(ZENCODE_SRC, 'venv', 'bin', 'python')
 OPERATOR_PYTHON = os.path.join(OPERATOR_SRC, 'venv', 'bin', 'python')
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+RUNTIME_ROOT = os.path.join(PROJECT_ROOT, ".seedling_runtime")
+MAX_ARTIFACT_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_BYTES", str(25 * 1024 * 1024)))
+MAX_ARTIFACT_EXPANDED_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_EXPANDED_BYTES", str(50 * 1024 * 1024)))
+MAX_ARTIFACT_MEMBERS = int(os.environ.get("SEEDLING_MAX_ARTIFACT_MEMBERS", "1000"))
 
 # ---------------------------------------------------------------------------
 # Process registry
@@ -70,9 +77,12 @@ class ManagedProcess:
 class Supervisor:
     def __init__(self):
         self.base_dir = None
+        self.quarantine_dir = None
         self.processes: dict[str, ManagedProcess] = {}
         self.logs = []
         self.update_history = []
+        self.seen_artifacts = set()
+        self.resetting = False
 
     def log(self, msg, source="supervisor", level="info"):
         entry = {
@@ -108,8 +118,24 @@ class Supervisor:
             )
         self.log(f"{label} venv ready.", source="supervisor")
 
+    def _process_env(self, mp):
+        """Build a minimal child environment without forwarding host secrets."""
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+            "PYTHONUNBUFFERED": "1",
+            "HOME": self.base_dir or tempfile.gettempdir(),
+            "TMPDIR": self.base_dir or tempfile.gettempdir(),
+            "NO_COLOR": "1",
+        }
+        env.update(mp.env_extras)
+        return env
+
     def initialize(self):
-        self.base_dir = tempfile.mkdtemp(prefix="zen_stack_")
+        runtime_root = os.environ.get("SEEDLING_RUNTIME_DIR", RUNTIME_ROOT)
+        os.makedirs(runtime_root, exist_ok=True)
+        self.base_dir = tempfile.mkdtemp(prefix="zen_stack_", dir=runtime_root)
+        self.quarantine_dir = os.path.join(self.base_dir, "quarantine")
+        self.seen_artifacts = set()
         self.log(f"Stack workspace: {self.base_dir}")
 
         # Auto-provision venvs if not already set up
@@ -122,7 +148,7 @@ class Supervisor:
         work_a = os.path.join(self.base_dir, "operator_a_work")
         work_b = os.path.join(self.base_dir, "operator_b_work")
 
-        for d in [sandbox_a, sandbox_b, work_a, work_b]:
+        for d in [sandbox_a, sandbox_b, work_a, work_b, self.quarantine_dir]:
             os.makedirs(d, exist_ok=True)
 
         # --- ZenCode instances ---
@@ -132,7 +158,12 @@ class Supervisor:
             port=8000,
             cwd=ZENCODE_SRC,
             cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8000"],
-            env_extras={"ZENCODE_SANDBOX_DIR": sandbox_a},
+            env_extras={
+                "ZENCODE_SANDBOX_DIR": sandbox_a,
+                "SEEDLING_SANDBOX_MODE": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
+                "SEEDLING_SANDBOX_NETWORK": os.environ.get("SEEDLING_SANDBOX_NETWORK", "none"),
+                "SEEDLING_SANDBOX_IMAGE": os.environ.get("SEEDLING_SANDBOX_IMAGE", "python:3.12-slim"),
+            },
             sandbox_dir=sandbox_a,
         )
         self.processes["zencode_b"] = ManagedProcess(
@@ -141,7 +172,12 @@ class Supervisor:
             port=8001,
             cwd=ZENCODE_SRC,
             cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8001"],
-            env_extras={"ZENCODE_SANDBOX_DIR": sandbox_b},
+            env_extras={
+                "ZENCODE_SANDBOX_DIR": sandbox_b,
+                "SEEDLING_SANDBOX_MODE": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
+                "SEEDLING_SANDBOX_NETWORK": os.environ.get("SEEDLING_SANDBOX_NETWORK", "none"),
+                "SEEDLING_SANDBOX_IMAGE": os.environ.get("SEEDLING_SANDBOX_IMAGE", "python:3.12-slim"),
+            },
             sandbox_dir=sandbox_b,
         )
 
@@ -177,8 +213,7 @@ class Supervisor:
 
     def start_process(self, name):
         mp = self.processes[name]
-        env = os.environ.copy()
-        env.update(mp.env_extras)
+        env = self._process_env(mp)
 
         self.log(f"Starting {name} on :{mp.port}...", source=name)
 
@@ -251,21 +286,203 @@ class Supervisor:
             if not os.path.exists(outbox):
                 continue
             artifacts = os.listdir(outbox)
-            if artifacts:
+            for artifact_name in sorted(artifacts):
                 target = "operator" if name == "zencode_a" else "zencode"
-                updates.append({
-                    "source": name,
-                    "target_codebase": target,
-                    "artifact_path": os.path.join(outbox, artifacts[0]),
-                    "detected_at": datetime.now().isoformat(),
-                })
+                artifact_path = os.path.join(outbox, artifact_name)
+                artifact_key = self._artifact_key(artifact_path)
+                if artifact_key in self.seen_artifacts:
+                    continue
+                self.seen_artifacts.add(artifact_key)
+                try:
+                    updates.append(self.quarantine_artifact(name, target, artifact_path))
+                except Exception as e:
+                    self.log(f"Artifact quarantine failed for {artifact_name}: {e}", source="supervisor", level="error")
         return updates
+
+    def _artifact_key(self, artifact):
+        stat = os.stat(artifact)
+        return f"{os.path.realpath(artifact)}:{stat.st_mtime_ns}:{stat.st_size}"
+
+    def _sha256(self, path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _validate_archive(self, artifact):
+        if not tarfile.is_tarfile(artifact):
+            raise ValueError("Update artifacts must be tar archives")
+        archive_size = os.path.getsize(artifact)
+        if archive_size > MAX_ARTIFACT_BYTES:
+            raise ValueError(f"Artifact is {archive_size} bytes; limit is {MAX_ARTIFACT_BYTES}")
+
+        expanded_bytes = 0
+        with tarfile.open(artifact, "r:*") as archive:
+            members = archive.getmembers()
+            if len(members) > MAX_ARTIFACT_MEMBERS:
+                raise ValueError(f"Artifact has {len(members)} members; limit is {MAX_ARTIFACT_MEMBERS}")
+            for member in members:
+                if not (member.isfile() or member.isdir()):
+                    raise ValueError(f"Unsupported archive member type: {member.name}")
+                normalized = os.path.normpath(member.name)
+                if normalized.startswith("..") or os.path.isabs(normalized):
+                    raise ValueError(f"Archive member escapes target: {member.name}")
+                expanded_bytes += max(member.size, 0)
+                if expanded_bytes > MAX_ARTIFACT_EXPANDED_BYTES:
+                    raise ValueError(
+                        f"Artifact expands past {MAX_ARTIFACT_EXPANDED_BYTES} bytes"
+                    )
+        return {"archive_bytes": archive_size, "expanded_bytes": expanded_bytes, "members": len(members)}
+
+    def quarantine_artifact(self, source, target, artifact):
+        artifact_id = uuid.uuid4().hex[:12]
+        safe_name = os.path.basename(artifact)
+        staged_path = os.path.join(self.quarantine_dir, f"{artifact_id}-{safe_name}")
+        shutil.copy2(artifact, staged_path)
+        validation = self._validate_archive(staged_path)
+        digest = self._sha256(staged_path)
+        update = {
+            "id": artifact_id,
+            "source": source,
+            "target_codebase": target,
+            "artifact_path": artifact,
+            "quarantine_path": staged_path,
+            "sha256": digest,
+            "status": "quarantined",
+            "detected_at": datetime.now().isoformat(),
+            **validation,
+        }
+        self.log(
+            f"Quarantined artifact {artifact_id} from {source} for {target}/ ({validation['archive_bytes']} bytes)",
+            source="supervisor",
+        )
+        return update
 
     def teardown(self):
         self.stop_all()
         if self.base_dir and os.path.exists(self.base_dir):
             shutil.rmtree(self.base_dir, ignore_errors=True)
             self.log("Stack workspace destroyed.")
+
+    def reset_stack(self):
+        """Tear down runtime state and restart from clean sandboxes."""
+        self.resetting = True
+        self.log("Reset requested. Recreating stack workspace...", source="supervisor")
+        try:
+            self.teardown()
+            self.processes = {}
+            self.update_history = []
+            self.initialize()
+            self.start_all()
+            self.log("Reset complete.", source="supervisor")
+        finally:
+            self.resetting = False
+
+    def safety_status(self):
+        runtime = os.environ.get("SEEDLING_CONTAINER_RUNTIME") or shutil.which("docker") or shutil.which("podman")
+        return {
+            "sandbox_mode": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
+            "container_runtime": runtime,
+            "network": os.environ.get("SEEDLING_SANDBOX_NETWORK", "none"),
+            "artifact_policy": "quarantine-and-manual-apply",
+            "env_policy": "allowlist",
+            "reset": "available",
+            "artifact_limits": {
+                "archive_bytes": MAX_ARTIFACT_BYTES,
+                "expanded_bytes": MAX_ARTIFACT_EXPANDED_BYTES,
+                "members": MAX_ARTIFACT_MEMBERS,
+            },
+        }
+
+    def _copy_tree_contents(self, source_dir, target_dir):
+        """Copy source directory contents over the target directory."""
+        for item in os.listdir(source_dir):
+            source = os.path.join(source_dir, item)
+            target = os.path.join(target_dir, item)
+            if os.path.isdir(source):
+                shutil.copytree(source, target, dirs_exist_ok=True)
+            else:
+                shutil.copy2(source, target)
+
+    def _safe_extract_archive(self, artifact, extract_dir):
+        """Extract a tar artifact without allowing paths to escape extract_dir."""
+        extract_root = os.path.abspath(extract_dir)
+        with tarfile.open(artifact, "r:*") as archive:
+            for member in archive.getmembers():
+                if not (member.isfile() or member.isdir()):
+                    raise ValueError(f"Unsupported archive member type: {member.name}")
+                member_path = os.path.abspath(os.path.join(extract_root, member.name))
+                if os.path.commonpath([extract_root, member_path]) != extract_root:
+                    raise ValueError(f"Archive member escapes extraction directory: {member.name}")
+            archive.extractall(extract_root)
+
+    def _apply_artifact_contents(self, artifact, target_src):
+        """Apply either a directory artifact or supported archive into target_src."""
+        if os.path.isdir(artifact):
+            self._copy_tree_contents(artifact, target_src)
+            return
+
+        if tarfile.is_tarfile(artifact):
+            with tempfile.TemporaryDirectory(prefix="zen_update_") as extract_dir:
+                self._safe_extract_archive(artifact, extract_dir)
+                self._copy_tree_contents(extract_dir, target_src)
+            return
+
+        raise ValueError(f"Unsupported update artifact format: {artifact}")
+
+    def apply_update(self, update_id):
+        """Applies a detected code artifact to the source tree."""
+        update = next((u for u in self.update_history if u.get("id") == update_id), None)
+        if not update:
+            raise ValueError(f"Unknown update artifact: {update_id}")
+        if update.get("status") != "quarantined":
+            raise ValueError(f"Update {update_id} is not ready to apply")
+
+        target_path = update["target_codebase"]  # "operator" or "zencode"
+        artifact = update["quarantine_path"]
+        target_src = ZENCODE_SRC if target_path == "zencode" else OPERATOR_SRC
+        affected = (
+            ["operator_a", "operator_b"]
+            if target_path == "operator"
+            else ["zencode_a", "zencode_b"]
+        )
+        running_before_update = [
+            name for name in affected
+            if self.processes[name].process and self.processes[name].process.poll() is None
+        ]
+
+        self.log(f"Applying approved update {update_id} to {target_src}...", source="supervisor")
+        update["status"] = "applying"
+        update["approved_at"] = datetime.now().isoformat()
+
+        for name in affected:
+            self.stop_process(name)
+
+        try:
+            self._apply_artifact_contents(artifact, target_src)
+
+            update["status"] = "applied"
+            update["applied_at"] = datetime.now().isoformat()
+            self.log(f"Applied update {update_id}.", source="supervisor")
+        except Exception as e:
+            update["status"] = "failed"
+            update["error"] = str(e)
+            self.log(f"Update application failed: {e}", source="supervisor", level="error")
+        finally:
+            if running_before_update:
+                self.log("Restarting affected stack...", source="supervisor")
+            for name in running_before_update:
+                self.start_process(name)
+
+    async def monitor(self):
+        """Periodic health checks and outbox polling."""
+        while True:
+            if not self.resetting:
+                self.health_check()
+                updates = self.poll_outboxes()
+                self.update_history.extend(updates)
+            await asyncio.sleep(3)
 
 
 # ---------------------------------------------------------------------------
@@ -293,31 +510,12 @@ async def startup():
         return
 
     # Background monitor loop
-    asyncio.create_task(monitor_loop())
+    asyncio.create_task(sup.monitor())
 
 
 @app.on_event("shutdown")
 async def shutdown():
     sup.teardown()
-
-
-async def monitor_loop():
-    """Periodic health checks and outbox polling."""
-    while True:
-        sup.health_check()
-
-        updates = sup.poll_outboxes()
-        for update in updates:
-            sup.log(
-                f"Update artifact detected! Source: {update['source']}, "
-                f"Target: {update['target_codebase']}, "
-                f"Path: {update['artifact_path']}",
-                level="info",
-            )
-            sup.update_history.append(update)
-            # TODO: Apply update, restart affected processes
-
-        await asyncio.sleep(3)
 
 
 # --- API endpoints ---
@@ -333,6 +531,7 @@ async def get_topology():
     return {
         "processes": {name: mp.to_dict() for name, mp in sup.processes.items()},
         "base_dir": sup.base_dir,
+        "safety": sup.safety_status(),
     }
 
 
@@ -347,6 +546,30 @@ async def get_logs(offset: int = Query(0, ge=0)):
 @app.get("/api/updates")
 async def get_updates():
     return {"updates": sup.update_history}
+
+
+@app.post("/api/updates/{update_id}/apply")
+async def apply_update_endpoint(update_id: str):
+    try:
+        sup.apply_update(update_id)
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@app.post("/api/reset")
+async def reset_stack_endpoint():
+    try:
+        sup.reset_stack()
+        return {"ok": True, "base_dir": sup.base_dir}
+    except Exception as e:
+        sup.log(f"Reset failed: {e}", source="supervisor", level="error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.get("/api/safety")
+async def safety_endpoint():
+    return sup.safety_status()
 
 
 @app.post("/api/process/{name}/start")

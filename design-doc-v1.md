@@ -53,15 +53,16 @@ Operators A and B are instances of the same codebase, differentiated only by env
 *   **Operator Sovereignty:** The Supervisor and Operator layers live exclusively outside the ZenCode sandbox. ZenCode cannot patch, query, or execute commands against the host or any Operator instance.
 *   **Encapsulated Artifacts:** Any code leaving a ZenCode sandbox is treated as fully unverified. ZenCode cannot deploy its own updates directly.
 *   **Visual-Only Affordance:** Operators interact exclusively via screenshots and standard UI inputs. No shell access, no IPC, no shared state.
-*   **Prompt-Based Sandboxing (Dev):** ZenCode is instructed via system prompt to confine itself to its working directory. Container-level isolation is planned for production hardening.
+*   **Container Command Boundary:** ZenCode's shell tool defaults to one-shot Docker/Podman containers. Generated commands receive only the active sandbox mounted at `/workspace`, no host secrets, no outbound network by default, and small resource caps. If the container runtime is missing, shell execution fails closed.
+*   **Path Boundary:** ZenCode file tools reject absolute paths and traversal outside the sandbox.
 
 ## The Update Flow
 
 1. **Generation:** ZenCode performs a task and produces a candidate artifact inside `/outbox`.
 2. **Detection:** The Supervisor polls each ZenCode instance's outbox directory.
 3. **Routing:** Artifacts from ZenCode-A target `operator/`; artifacts from ZenCode-B target `zencode/`.
-4. **Inspection:** The Supervisor logs the detection and (in future) triggers validation.
-5. **Deployment:** The Supervisor tears down affected processes, applies the artifact, and restarts.
+4. **Quarantine:** The Supervisor copies the artifact into a supervisor-owned quarantine directory, validates tar metadata and path safety, computes a digest, and marks it `quarantined`.
+5. **Manual Apply:** A human can approve a quarantined artifact from the dashboard. Only then does the Supervisor tear down affected processes, apply the artifact, and restart.
 
 ## Configuration
 
@@ -69,6 +70,10 @@ All processes are configured via environment variables:
 
 **ZenCode:**
 - `ZENCODE_SANDBOX_DIR` — Override the tempdir sandbox location
+- `SEEDLING_SANDBOX_MODE` — `container` by default; `local` is development-only
+- `SEEDLING_SANDBOX_NETWORK` — container network mode, `none` by default
+- `SEEDLING_SANDBOX_IMAGE` — command container image, default `python:3.12-slim`
+- `SEEDLING_SANDBOX_CPUS`, `SEEDLING_SANDBOX_MEMORY`, `SEEDLING_SANDBOX_PIDS` — command resource caps
 
 **Operator:**
 - `OPERATOR_TARGET` — ZenCode UI URL to interact with

@@ -9,7 +9,7 @@
     "frontendDist": "../ui"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "label": "main",
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:7000 http://127.0.0.1:8000 http://127.0.0.1:8001 http://127.0.0.1:9000 http://127.0.0.1:9001; img-src 'self' data: http://127.0.0.1:7000; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'"
     }
   },
   "bundle": {

@@ -3,6 +3,9 @@ import json
 import httpx
 import tempfile
 import subprocess
+import shutil
+import tarfile
+import hashlib
 from fastapi import FastAPI, Request, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -21,8 +24,53 @@ sandbox_state = {
     "logs": []   # append-only, never cleared
 }
 
+SANDBOX_MODE = os.environ.get("SEEDLING_SANDBOX_MODE", "container").lower()
+SANDBOX_IMAGE = os.environ.get("SEEDLING_SANDBOX_IMAGE", "python:3.12-slim")
+SANDBOX_RUNTIME = os.environ.get("SEEDLING_CONTAINER_RUNTIME")
+SANDBOX_NETWORK = os.environ.get("SEEDLING_SANDBOX_NETWORK", "none")
+SANDBOX_CPUS = os.environ.get("SEEDLING_SANDBOX_CPUS", "1")
+SANDBOX_MEMORY = os.environ.get("SEEDLING_SANDBOX_MEMORY", "512m")
+SANDBOX_PIDS = os.environ.get("SEEDLING_SANDBOX_PIDS", "128")
+SANDBOX_TIMEOUT = int(os.environ.get("SEEDLING_SANDBOX_TIMEOUT", "30"))
+MAX_READ_BYTES = int(os.environ.get("SEEDLING_MAX_READ_BYTES", str(1024 * 1024)))
+MAX_WRITE_BYTES = int(os.environ.get("SEEDLING_MAX_WRITE_BYTES", str(5 * 1024 * 1024)))
+MAX_ARTIFACT_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_BYTES", str(25 * 1024 * 1024)))
+EXCLUDED_ARTIFACT_DIRS = {".git", "venv", ".venv", "node_modules", "__pycache__", "outbox"}
+DEFAULT_RUNTIME_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".seedling_runtime", "zencode"))
+
 def log_event(msg, evt_type="log-out"):
     sandbox_state["logs"].append({"msg": msg, "type": evt_type})
+
+def ensure_sandbox_dir():
+    if sandbox_state["sandbox_dir"]:
+        return sandbox_state["sandbox_dir"]
+
+    env_dir = os.environ.get("ZENCODE_SANDBOX_DIR")
+    if env_dir:
+        os.makedirs(env_dir, exist_ok=True)
+        sandbox_state["sandbox_dir"] = env_dir
+    else:
+        runtime_root = os.environ.get("SEEDLING_RUNTIME_DIR", DEFAULT_RUNTIME_ROOT)
+        os.makedirs(runtime_root, exist_ok=True)
+        sandbox_state["sandbox_dir"] = tempfile.mkdtemp(prefix="zen_sandbox_", dir=runtime_root)
+    return sandbox_state["sandbox_dir"]
+
+def resolve_sandbox_path(path: str):
+    root = os.path.realpath(ensure_sandbox_dir())
+    if not path or "\x00" in path:
+        raise ValueError("Path must be a non-empty relative path")
+    if os.path.isabs(path):
+        raise ValueError("Absolute paths are not allowed")
+
+    candidate = os.path.realpath(os.path.join(root, path))
+    if os.path.commonpath([root, candidate]) != root:
+        raise ValueError(f"Path escapes sandbox: {path}")
+    return candidate
+
+def container_runtime():
+    if SANDBOX_RUNTIME:
+        return SANDBOX_RUNTIME
+    return shutil.which("docker") or shutil.which("podman")
 
 # ---------------------------------------------------------------------------
 # Native Tool Definitions (OpenAI function-calling format)
@@ -92,22 +140,61 @@ TOOLS = [
 
 def run_bash(command: str):
     log_event(f"$ {command}", "log-cmd")
+    sandbox_dir = ensure_sandbox_dir()
+
+    if SANDBOX_MODE not in {"container", "local"}:
+        msg = f"Unsupported sandbox mode: {SANDBOX_MODE}"
+        log_event(msg, "log-err")
+        return {"error": msg}
+
     try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            cwd=sandbox_state["sandbox_dir"],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
+        if SANDBOX_MODE == "container":
+            runtime = container_runtime()
+            if not runtime:
+                msg = "Container sandbox runtime not found. Install Docker or Podman to run commands."
+                log_event(msg, "log-err")
+                return {"error": msg}
+
+            cmd = [
+                runtime, "run", "--rm",
+                "--network", SANDBOX_NETWORK,
+                "--cpus", SANDBOX_CPUS,
+                "--memory", SANDBOX_MEMORY,
+                "--pids-limit", SANDBOX_PIDS,
+                "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges",
+                "--read-only",
+                "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
+                "-v", f"{sandbox_dir}:/workspace:rw",
+                "-w", "/workspace",
+                SANDBOX_IMAGE,
+                "/bin/sh", "-lc", command,
+            ]
+            result = subprocess.run(
+                cmd,
+                cwd=sandbox_dir,
+                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")},
+                capture_output=True,
+                text=True,
+                timeout=SANDBOX_TIMEOUT,
+            )
+        else:
+            result = subprocess.run(
+                command,
+                shell=True,
+                cwd=sandbox_dir,
+                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")},
+                capture_output=True,
+                text=True,
+                timeout=SANDBOX_TIMEOUT
+            )
         out = result.stdout
         err = result.stderr
         if out: log_event(out, "log-out")
         if err: log_event(err, "log-err")
         return {"stdout": out, "stderr": err, "returncode": result.returncode}
     except subprocess.TimeoutExpired:
-        msg = f"Command timed out after 30s: {command}"
+        msg = f"Command timed out after {SANDBOX_TIMEOUT}s: {command}"
         log_event(msg, "log-err")
         return {"error": msg}
     except Exception as e:
@@ -115,9 +202,11 @@ def run_bash(command: str):
         return {"error": str(e)}
 
 def write_file(path: str, content: str):
-    full_path = os.path.join(sandbox_state["sandbox_dir"], path)
     log_event(f"write_file: {path} ({len(content)} bytes)", "log-cmd")
     try:
+        if len(content.encode("utf-8")) > MAX_WRITE_BYTES:
+            raise ValueError(f"File exceeds write limit of {MAX_WRITE_BYTES} bytes")
+        full_path = resolve_sandbox_path(path)
         os.makedirs(os.path.dirname(full_path) or ".", exist_ok=True)
         with open(full_path, 'w') as f:
             f.write(content)
@@ -127,9 +216,11 @@ def write_file(path: str, content: str):
         return {"error": str(e)}
 
 def read_file(path: str):
-    full_path = os.path.join(sandbox_state["sandbox_dir"], path)
     log_event(f"read_file: {path}", "log-cmd")
     try:
+        full_path = resolve_sandbox_path(path)
+        if os.path.getsize(full_path) > MAX_READ_BYTES:
+            raise ValueError(f"File exceeds read limit of {MAX_READ_BYTES} bytes")
         with open(full_path, 'r') as f:
             content = f.read()
         log_event(f"  ({len(content)} bytes)", "log-out")
@@ -168,15 +259,10 @@ async def init_agent(req: Request):
     sandbox_state["base_url"] = data.get("base_url")
     sandbox_state["model_id"] = data.get("model_id")
 
-    if not sandbox_state["sandbox_dir"]:
-        env_dir = os.environ.get("ZENCODE_SANDBOX_DIR")
-        if env_dir:
-            os.makedirs(env_dir, exist_ok=True)
-            sandbox_state["sandbox_dir"] = env_dir
-        else:
-            sandbox_state["sandbox_dir"] = tempfile.mkdtemp(prefix="zen_sandbox_")
+    ensure_sandbox_dir()
 
     log_event(f"Sandbox initialized at {sandbox_state['sandbox_dir']}", "log-cmd")
+    log_event(f"Sandbox mode: {SANDBOX_MODE}; network: {SANDBOX_NETWORK}; image: {SANDBOX_IMAGE}", "log-cmd")
     log_event(f"Using model {sandbox_state['model_id']} via {sandbox_state['base_url']}")
     return {"status": "success"}
 
@@ -290,12 +376,50 @@ async def chat(req: Request):
 
 @app.post("/api/ship_update")
 async def ship_update():
-    outbox_dir = os.path.join(sandbox_state["sandbox_dir"], "outbox")
+    sandbox_dir = ensure_sandbox_dir()
+    outbox_dir = os.path.join(sandbox_dir, "outbox")
     os.makedirs(outbox_dir, exist_ok=True)
-    import shutil
-    shutil.make_archive(os.path.join(outbox_dir, "zencode_update"), 'gztar', os.getcwd())
-    log_event("Shipped self-update to outbox!", "log-cmd")
-    return {"status": "success"}
+
+    fd, temp_archive = tempfile.mkstemp(prefix="seedling_update_", suffix=".tar.gz")
+    os.close(fd)
+
+    try:
+        with tarfile.open(temp_archive, "w:gz") as archive:
+            for root, dirs, files in os.walk(sandbox_dir):
+                dirs[:] = [d for d in dirs if d not in EXCLUDED_ARTIFACT_DIRS]
+                rel_root = os.path.relpath(root, sandbox_dir)
+                if rel_root == ".":
+                    rel_root = ""
+                for filename in files:
+                    path = os.path.join(root, filename)
+                    rel_path = os.path.normpath(os.path.join(rel_root, filename))
+                    if rel_path.startswith(".."):
+                        continue
+                    archive.add(path, arcname=rel_path)
+
+        size = os.path.getsize(temp_archive)
+        if size > MAX_ARTIFACT_BYTES:
+            raise ValueError(f"Artifact exceeds limit of {MAX_ARTIFACT_BYTES} bytes")
+
+        digest = hashlib.sha256()
+        with open(temp_archive, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+
+        final_path = os.path.join(outbox_dir, f"zencode_update_{digest.hexdigest()[:12]}.tar.gz")
+        shutil.move(temp_archive, final_path)
+        log_event(f"Shipped quarantinable artifact to outbox: {os.path.basename(final_path)}", "log-cmd")
+        return {
+            "status": "success",
+            "artifact": os.path.basename(final_path),
+            "sha256": digest.hexdigest(),
+            "bytes": size,
+        }
+    except Exception as e:
+        if os.path.exists(temp_archive):
+            os.remove(temp_archive)
+        log_event(str(e), "log-err")
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 @app.get("/api/logs")

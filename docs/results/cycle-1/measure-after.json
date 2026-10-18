@@ -1,0 +1,576 @@
+{
+  "label": "after cycle 1 apply of 95ec8d06f7bc (working tree as applied)",
+  "measured_at": "2026-10-18T23:33:05Z",
+  "python": "3.14.3",
+  "operator_dir": "operator",
+  "operator_tree_sha256": "bfa7bdc62a2e3e732f9c984c6481fd70c5b4de97952a65e7c2cf871d42f0be49",
+  "operator_files": {
+    "README.md": "7214573416b0fc0802aeac8cbea0febb6768af4d3e604ecbedbe295fef40191e",
+    "action_parser.py": "631c7ded01df277d759da79e56e7508c824b11d7a41916ab1449e5bc765ed70d",
+    "check_parser.py": "769be587b16cef00c0193abdca37b51783ac70ef630d08d86fe85b8e772a31d2",
+    "examples.txt": "4b91065b020e6e0fc5440839a7c1a8d36db17388c5ebf4830dd00157e1e106f1",
+    "main.py": "1c43eef64c463511886815acea85ef58e63c98724cc8cc45e6be48ada69a5e5b",
+    "parse_action.py": "631c7ded01df277d759da79e56e7508c824b11d7a41916ab1449e5bc765ed70d",
+    "requirements.txt": "4215b07910ef47e01c4e6d5bc21a5654dce80c93d7ea82e9a8d1e96d1ab6da33",
+    "run.sh": "d802742e51b3280fab63be76453ce3a152016e284b4ab602d6bab7a659501679",
+    "static/app.js": "c50a87039906212a331bf7432f889f92d7a60696107428f6e3075e6070c43073",
+    "static/index.html": "111c881bcecdeaf97531e201c1ee0d88a606f93b50dd63db42486cb027cefe3e",
+    "static/style.css": "4560d701e2d687548e0ae55bc59b75564387d1c25aa175f7f5108ebe2e58c65e"
+  },
+  "corpus": "tests/fixtures/operator_replies.jsonl",
+  "corpus_sha256": "2af13762ca98b60c6f9b6cb6e927057585188cbcbde702991f007c28bf69bece",
+  "parse": {
+    "passed": 31,
+    "total": 43,
+    "error": null,
+    "cases": [
+      {
+        "id": "clean-click",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Connect')"
+          }
+        }
+      },
+      {
+        "id": "clean-fill",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "fill",
+            "selector": "input[type='url']",
+            "value": "http://127.0.0.1:1234"
+          }
+        }
+      },
+      {
+        "id": "clean-wait",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "wait",
+            "ms": 2000
+          }
+        }
+      },
+      {
+        "id": "clean-done",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "done"
+          }
+        }
+      },
+      {
+        "id": "fenced-json",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Ship Update')"
+          }
+        }
+      },
+      {
+        "id": "prose-before",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "fill",
+            "selector": "input[type='url']",
+            "value": "http://127.0.0.1:1234/v1"
+          }
+        }
+      },
+      {
+        "id": "extra-keys",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "textarea",
+            "reason": "focus the chat box"
+          }
+        }
+      },
+      {
+        "id": "pretty-printed",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "fill",
+            "selector": "textarea",
+            "value": "Improve action_parser.py"
+          }
+        }
+      },
+      {
+        "id": "done-with-summary",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "done",
+            "summary": "Update shipped."
+          }
+        }
+      },
+      {
+        "id": "array-wrapped",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "wait",
+            "ms": 500
+          }
+        }
+      },
+      {
+        "id": "prose-only",
+        "class": "no-action",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "empty",
+        "class": "no-action",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "think-only",
+        "class": "no-action",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "brace-in-trailing-prose",
+        "class": "trailing-prose",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Connect')"
+          }
+        }
+      },
+      {
+        "id": "alternative-object",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Ship Update')"
+          }
+        }
+      },
+      {
+        "id": "repeated-object",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "done"
+          }
+        }
+      },
+      {
+        "id": "stray-closing-brace",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "done"
+          }
+        }
+      },
+      {
+        "id": "fenced-then-format-reminder",
+        "class": "trailing-prose",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "textarea"
+          }
+        }
+      },
+      {
+        "id": "think-with-braces",
+        "class": "think-block",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "single-quotes",
+        "class": "quoting",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "curly-quotes",
+        "class": "quoting",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "trailing-comma",
+        "class": "quoting",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "capitalised-action",
+        "class": "normalise",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "Click",
+            "selector": "button:has-text('Send')"
+          }
+        }
+      },
+      {
+        "id": "ms-as-string",
+        "class": "normalise",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "wait",
+            "ms": "2000"
+          }
+        }
+      },
+      {
+        "id": "ms-missing",
+        "class": "normalise",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "wait"
+          }
+        }
+      },
+      {
+        "id": "click-without-selector",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click"
+          }
+        }
+      },
+      {
+        "id": "fill-empty-selector",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "fill",
+            "selector": "",
+            "value": "x"
+          }
+        }
+      },
+      {
+        "id": "unknown-action",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "scroll",
+            "direction": "down"
+          }
+        }
+      },
+      {
+        "id": "no-action-key",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "selector": "textarea"
+          }
+        }
+      },
+      {
+        "id": "bare-json-string",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "invalid-then-valid",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "scroll",
+            "direction": "down"
+          }
+        }
+      },
+      {
+        "id": "recorded-setup",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Connect & Probe')"
+          }
+        }
+      },
+      {
+        "id": "recorded-endpoint-filled",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Connect & Probe')"
+          }
+        }
+      },
+      {
+        "id": "recorded-model-list",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Initialize Workspace')"
+          }
+        }
+      },
+      {
+        "id": "recorded-workspace",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "fill",
+            "selector": "textarea",
+            "value": "Use ZenCode to improve the Operator codebase"
+          }
+        }
+      },
+      {
+        "id": "recorded-working",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "wait",
+            "ms": 2000
+          }
+        }
+      },
+      {
+        "id": "recorded-reply-done",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Ship Update')"
+          }
+        }
+      },
+      {
+        "id": "recorded-shipped",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Connect')"
+          }
+        }
+      },
+      {
+        "id": "recorded-error",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Connect')"
+          }
+        }
+      },
+      {
+        "id": "recorded-setup-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Connect & Probe')"
+          }
+        }
+      },
+      {
+        "id": "recorded-workspace-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "fill",
+            "selector": "textarea",
+            "value": "How can I improve the Operator codebase using ZenCode?"
+          }
+        }
+      },
+      {
+        "id": "recorded-working-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "wait",
+            "ms": 2000
+          }
+        }
+      },
+      {
+        "id": "recorded-reply-done-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": true,
+        "outcome": {
+          "kind": "action",
+          "value": {
+            "action": "click",
+            "selector": "button:has-text('Ship Update')"
+          }
+        }
+      }
+    ]
+  },
+  "tests": {
+    "ran": 31,
+    "ok": true,
+    "exit": 0,
+    "tail": [
+      "Ran 31 tests in 2.663s",
+      "",
+      "OK"
+    ]
+  },
+  "summary": "parse 31/43 (72.1%) | tests 31 OK"
+}

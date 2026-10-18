@@ -1,0 +1,395 @@
+{
+  "ship": {
+    "shipped_at": "2026-10-18T23:32:38Z",
+    "status": 200,
+    "ship": {
+      "status": "success",
+      "artifact": "zencode_update_341016131697.tar.gz",
+      "sha256": "341016131697d249c2cc868c9099ba2ea29a48d3e2786d1b1b1217e8147b1154",
+      "bytes": 2593
+    },
+    "quarantine": {
+      "id": "95ec8d06f7bc",
+      "source": "zencode_a",
+      "target_codebase": "operator",
+      "artifact_path": "<runtime>/zen_stack_vk5nfabi/zencode_a_workspace/outbox/zencode_update_341016131697.tar.gz",
+      "quarantine_path": "<runtime>/zen_stack_vk5nfabi/quarantine/95ec8d06f7bc-zencode_update_341016131697.tar.gz",
+      "sha256": "341016131697d249c2cc868c9099ba2ea29a48d3e2786d1b1b1217e8147b1154",
+      "status": "quarantined",
+      "detected_at": "2026-10-18T18:32:40.826907",
+      "archive_bytes": 2593,
+      "expanded_bytes": 6633,
+      "members": 5
+    },
+    "quarantine_seen_at": "2026-10-18T23:32:42Z"
+  },
+  "artifact_members": [
+    {
+      "name": "action_parser.py",
+      "bytes": 803,
+      "sha256": "631c7ded01df277d759da79e56e7508c824b11d7a41916ab1449e5bc765ed70d"
+    },
+    {
+      "name": "examples.txt",
+      "bytes": 615,
+      "sha256": "4b91065b020e6e0fc5440839a7c1a8d36db17388c5ebf4830dd00157e1e106f1"
+    },
+    {
+      "name": "README.md",
+      "bytes": 2838,
+      "sha256": "7214573416b0fc0802aeac8cbea0febb6768af4d3e604ecbedbe295fef40191e"
+    },
+    {
+      "name": "check_parser.py",
+      "bytes": 1574,
+      "sha256": "769be587b16cef00c0193abdca37b51783ac70ef630d08d86fe85b8e772a31d2"
+    },
+    {
+      "name": "parse_action.py",
+      "bytes": 803,
+      "sha256": "631c7ded01df277d759da79e56e7508c824b11d7a41916ab1449e5bc765ed70d"
+    }
+  ],
+  "apply": {
+    "head_before_apply": "1e1e99df028a2c211ed8093d985a4a5e42270182",
+    "requested_at": "2026-10-18T23:32:55Z",
+    "update_before": {
+      "id": "95ec8d06f7bc",
+      "source": "zencode_a",
+      "target_codebase": "operator",
+      "artifact_path": "<runtime>/zen_stack_vk5nfabi/zencode_a_workspace/outbox/zencode_update_341016131697.tar.gz",
+      "quarantine_path": "<runtime>/zen_stack_vk5nfabi/quarantine/95ec8d06f7bc-zencode_update_341016131697.tar.gz",
+      "sha256": "341016131697d249c2cc868c9099ba2ea29a48d3e2786d1b1b1217e8147b1154",
+      "status": "quarantined",
+      "detected_at": "2026-10-18T18:32:40.826907",
+      "archive_bytes": 2593,
+      "expanded_bytes": 6633,
+      "members": 5
+    },
+    "apply": {
+      "at": "2026-10-18T23:32:56Z",
+      "status": 200,
+      "body": {
+        "ok": true
+      }
+    },
+    "update_after": {
+      "id": "95ec8d06f7bc",
+      "source": "zencode_a",
+      "target_codebase": "operator",
+      "artifact_path": "<runtime>/zen_stack_vk5nfabi/zencode_a_workspace/outbox/zencode_update_341016131697.tar.gz",
+      "quarantine_path": "<runtime>/zen_stack_vk5nfabi/quarantine/95ec8d06f7bc-zencode_update_341016131697.tar.gz",
+      "sha256": "341016131697d249c2cc868c9099ba2ea29a48d3e2786d1b1b1217e8147b1154",
+      "status": "applied",
+      "detected_at": "2026-10-18T18:32:40.826907",
+      "archive_bytes": 2593,
+      "expanded_bytes": 6633,
+      "members": 5,
+      "approved_at": "2026-10-18T18:32:55.815895",
+      "applied_at": "2026-10-18T18:32:56.182383"
+    }
+  },
+  "supervisor_updates_after": {
+    "updates": [
+      {
+        "id": "95ec8d06f7bc",
+        "source": "zencode_a",
+        "target_codebase": "operator",
+        "artifact_path": "<runtime>/zen_stack_vk5nfabi/zencode_a_workspace/outbox/zencode_update_341016131697.tar.gz",
+        "quarantine_path": "<runtime>/zen_stack_vk5nfabi/quarantine/95ec8d06f7bc-zencode_update_341016131697.tar.gz",
+        "sha256": "341016131697d249c2cc868c9099ba2ea29a48d3e2786d1b1b1217e8147b1154",
+        "status": "applied",
+        "detected_at": "2026-10-18T18:32:40.826907",
+        "archive_bytes": 2593,
+        "expanded_bytes": 6633,
+        "members": 5,
+        "approved_at": "2026-10-18T18:32:55.815895",
+        "applied_at": "2026-10-18T18:32:56.182383"
+      }
+    ]
+  },
+  "supervisor_logs": [
+    {
+      "ts": "2026-10-18T18:08:41.458195",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Stack workspace: <runtime>/zen_stack_9r35_10o"
+    },
+    {
+      "ts": "2026-10-18T18:08:41.459905",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Seeded zencode_a_workspace with README.md, action_parser.py"
+    },
+    {
+      "ts": "2026-10-18T18:08:41.459936",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "Starting zencode_a on :8000..."
+    },
+    {
+      "ts": "2026-10-18T18:08:41.463305",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "zencode_a started (PID 73423)"
+    },
+    {
+      "ts": "2026-10-18T18:08:41.463390",
+      "source": "zencode_b",
+      "level": "info",
+      "msg": "Starting zencode_b on :8001..."
+    },
+    {
+      "ts": "2026-10-18T18:08:41.465769",
+      "source": "zencode_b",
+      "level": "info",
+      "msg": "zencode_b started (PID 73424)"
+    },
+    {
+      "ts": "2026-10-18T18:08:43.466001",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "Starting operator_b on :9001..."
+    },
+    {
+      "ts": "2026-10-18T18:08:43.472931",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "operator_b started (PID 73434)"
+    },
+    {
+      "ts": "2026-10-18T18:08:43.473029",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "Starting operator_a on :9000..."
+    },
+    {
+      "ts": "2026-10-18T18:08:43.475567",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "operator_a started (PID 73435)"
+    },
+    {
+      "ts": "2026-10-18T18:08:43.475604",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "All processes started."
+    },
+    {
+      "ts": "2026-10-18T18:20:37.895879",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Quarantined artifact 76df40fb7529 from zencode_a for operator/ (2672 bytes)"
+    },
+    {
+      "ts": "2026-10-18T18:21:09.209216",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Reset requested. Recreating stack workspace..."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.209241",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "Stopping operator_a..."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.342022",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "Stopping operator_b..."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.486537",
+      "source": "zencode_b",
+      "level": "info",
+      "msg": "Stopping zencode_b..."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.698037",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "Stopping zencode_a..."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.900975",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "All processes stopped."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.907327",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Stack workspace destroyed."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.907546",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Stack workspace: <runtime>/zen_stack_vk5nfabi"
+    },
+    {
+      "ts": "2026-10-18T18:21:09.908519",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Seeded zencode_a_workspace with README.md, action_parser.py"
+    },
+    {
+      "ts": "2026-10-18T18:21:09.908560",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "Starting zencode_a on :8000..."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.911627",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "zencode_a started (PID 90172)"
+    },
+    {
+      "ts": "2026-10-18T18:21:09.911696",
+      "source": "zencode_b",
+      "level": "info",
+      "msg": "Starting zencode_b on :8001..."
+    },
+    {
+      "ts": "2026-10-18T18:21:09.913935",
+      "source": "zencode_b",
+      "level": "info",
+      "msg": "zencode_b started (PID 90173)"
+    },
+    {
+      "ts": "2026-10-18T18:21:11.916908",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "Starting operator_b on :9001..."
+    },
+    {
+      "ts": "2026-10-18T18:21:11.920044",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "operator_b started (PID 90201)"
+    },
+    {
+      "ts": "2026-10-18T18:21:11.920119",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "Starting operator_a on :9000..."
+    },
+    {
+      "ts": "2026-10-18T18:21:11.923554",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "operator_a started (PID 90202)"
+    },
+    {
+      "ts": "2026-10-18T18:21:11.923606",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "All processes started."
+    },
+    {
+      "ts": "2026-10-18T18:21:11.923611",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Reset complete."
+    },
+    {
+      "ts": "2026-10-18T18:28:36.005474",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "Stopping zencode_a..."
+    },
+    {
+      "ts": "2026-10-18T18:28:37.255386",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "Starting zencode_a on :8000..."
+    },
+    {
+      "ts": "2026-10-18T18:28:37.259301",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "zencode_a started (PID 96656)"
+    },
+    {
+      "ts": "2026-10-18T18:31:30.610630",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "Stopping zencode_a..."
+    },
+    {
+      "ts": "2026-10-18T18:31:31.796586",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "Starting zencode_a on :8000..."
+    },
+    {
+      "ts": "2026-10-18T18:31:31.799880",
+      "source": "zencode_a",
+      "level": "info",
+      "msg": "zencode_a started (PID 99906)"
+    },
+    {
+      "ts": "2026-10-18T18:32:40.826920",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Quarantined artifact 95ec8d06f7bc from zencode_a for operator/ (2593 bytes)"
+    },
+    {
+      "ts": "2026-10-18T18:32:55.815879",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Applying approved update 95ec8d06f7bc to <repo>/operator..."
+    },
+    {
+      "ts": "2026-10-18T18:32:55.815897",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "Stopping operator_a..."
+    },
+    {
+      "ts": "2026-10-18T18:32:55.997424",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "Stopping operator_b..."
+    },
+    {
+      "ts": "2026-10-18T18:32:56.182392",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Applied update 95ec8d06f7bc."
+    },
+    {
+      "ts": "2026-10-18T18:32:56.182397",
+      "source": "supervisor",
+      "level": "info",
+      "msg": "Restarting affected stack..."
+    },
+    {
+      "ts": "2026-10-18T18:32:56.182416",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "Starting operator_a on :9000..."
+    },
+    {
+      "ts": "2026-10-18T18:32:56.185438",
+      "source": "operator_a",
+      "level": "info",
+      "msg": "operator_a started (PID 1697)"
+    },
+    {
+      "ts": "2026-10-18T18:32:56.185508",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "Starting operator_b on :9001..."
+    },
+    {
+      "ts": "2026-10-18T18:32:56.188274",
+      "source": "operator_b",
+      "level": "info",
+      "msg": "operator_b started (PID 1698)"
+    }
+  ]
+}

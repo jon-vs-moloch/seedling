@@ -99,9 +99,11 @@ Every server binds to `127.0.0.1` and refuses requests whose `Host` is not `127.
 
 ## Status
 
-**Experiment.** What is real and tested: the containment (container flags, path checks, environment allowlist), the archive checks, the quarantine, the manual apply path, the dashboard and ZenCode itself. A ZenCode instance shipping an artifact that lands in quarantine has been run end to end.
+**Experiment.** What is real and tested: the containment (container flags, path checks, environment allowlist), the archive checks, the quarantine, the manual apply path, the dashboard and ZenCode itself.
 
-What has not been shown yet: a full cycle where an operator drives ZenCode to a useful improvement that is then applied. The vision-operator loop is observational; watch it, don't depend on it. Also:
+**One measured cycle has run** ([`docs/results/cycle-1`](docs/results/cycle-1)). ZenCode A, running Qwen3-8B (open weights, run locally), rewrote the operator's action parser in its container sandbox and shipped it. The supervisor quarantined it, and it was applied through the supervisor's API. The parser's score on a fixed corpus of 43 model replies went from 23 to 31, with no per-reply regressions, and the smoke tests passed before and after. An earlier attempt scored 8/43 from quarantine and was not applied. ZenCode was driven by a script (`scripts/run_cycle.py`) and by follow-up messages a person chose, not by the vision operator.
+
+What has not been shown yet: a cycle where the vision operator drives ZenCode itself. The vision-operator loop is observational; watch it, don't depend on it. Also:
 
 - applying an artifact copies it over `zencode/` or `operator/` in place. There is no backup and no automatic rollback (use git);
 - nothing tests an artifact before a human applies it;

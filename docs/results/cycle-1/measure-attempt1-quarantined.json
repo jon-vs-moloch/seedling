@@ -1,0 +1,453 @@
+{
+  "label": "attempt 1 quarantined artifact 76df40fb7529, pre-apply",
+  "measured_at": "2026-10-18T23:20:45Z",
+  "python": "3.14.3",
+  "operator_dir": "../run1/attempt1-extract",
+  "operator_tree_sha256": "c7dee15ec15e73301580340ab1947187bce18f9666325d47bf58ca303feccf95",
+  "operator_files": {
+    "README.md": "7214573416b0fc0802aeac8cbea0febb6768af4d3e604ecbedbe295fef40191e",
+    "action_parser.py": "57824dba2dd9f8fbb7a3f5dc3295c46f6ae7e128eeb1a765d8b796d8a3aade3c",
+    "check_parser.py": "ce36e93c51ac83b23857e86fea78e7c7d148a6210f31fe9a32064498212c80a6"
+  },
+  "corpus": "tests/fixtures/operator_replies.jsonl",
+  "corpus_sha256": "2af13762ca98b60c6f9b6cb6e927057585188cbcbde702991f007c28bf69bece",
+  "parse": {
+    "passed": 8,
+    "total": 43,
+    "error": null,
+    "cases": [
+      {
+        "id": "clean-click",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "clean-fill",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "clean-wait",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "clean-done",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "fenced-json",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "prose-before",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "extra-keys",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "pretty-printed",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "done-with-summary",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "array-wrapped",
+        "class": "clean",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "prose-only",
+        "class": "no-action",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "empty",
+        "class": "no-action",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "think-only",
+        "class": "no-action",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "brace-in-trailing-prose",
+        "class": "trailing-prose",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "alternative-object",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "repeated-object",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "stray-closing-brace",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "fenced-then-format-reminder",
+        "class": "trailing-prose",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "think-with-braces",
+        "class": "think-block",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "single-quotes",
+        "class": "quoting",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "curly-quotes",
+        "class": "quoting",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "trailing-comma",
+        "class": "quoting",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "capitalised-action",
+        "class": "normalise",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "ms-as-string",
+        "class": "normalise",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "ms-missing",
+        "class": "normalise",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "click-without-selector",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "fill-empty-selector",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "unknown-action",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "no-action-key",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "bare-json-string",
+        "class": "unusable",
+        "source": "synthetic",
+        "pass": true,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "invalid-then-valid",
+        "class": "second-object",
+        "source": "synthetic",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-setup",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-endpoint-filled",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-model-list",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-workspace",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-working",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-reply-done",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-shipped",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-error",
+        "class": "recorded",
+        "source": "recorded:qwen3-8b-q4_k_m",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-setup-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-workspace-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-working-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      },
+      {
+        "id": "recorded-reply-done-raw",
+        "class": "think-block",
+        "source": "recorded:qwen3-8b-q4_k_m,think-block-kept",
+        "pass": false,
+        "outcome": {
+          "kind": "refused",
+          "error": "ValueError"
+        }
+      }
+    ]
+  },
+  "tests": null,
+  "summary": "parse 8/43 (18.6%) | tests skipped"
+}

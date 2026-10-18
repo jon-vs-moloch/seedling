@@ -40,6 +40,7 @@ The supervisor exposes `/api/reset` and a dashboard Reset button. Reset stops ma
 - Artifacts are validated for shape (size, members, paths), not behaviour. Nothing tests an artifact before a human applies it.
 - ZenCode B's sandbox starts empty, so a ZenCode improvement has to be rebuilt inside the sandbox. ZenCode A's sandbox starts with copies of `operator/README.md` and `operator/action_parser.py`, its improvement target. Nothing else from the checkout is copied in, and nothing is mounted.
 - `scripts/measure_cycle.py` scores `operator/` before and after an apply. It measures; it does not gate anything.
+- If the container runtime cannot see `SEEDLING_RUNTIME_DIR` (Colima mounts only your home directory by default), commands run against an empty `/workspace` and their writes are lost. Nothing reports this yet.
 
 ## Remaining Release Notes
 

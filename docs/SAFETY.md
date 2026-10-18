@@ -38,7 +38,8 @@ The supervisor exposes `/api/reset` and a dashboard Reset button. Reset stops ma
 
 - Applying an artifact copies it over the checked-out `zencode/` or `operator/` source in place. There is no backup and no automatic rollback; use git to undo.
 - Artifacts are validated for shape (size, members, paths), not behaviour. Nothing tests an artifact before a human applies it.
-- ZenCode sandboxes start empty. The target source is not copied in, so an improvement has to be rebuilt inside the sandbox.
+- ZenCode B's sandbox starts empty, so a ZenCode improvement has to be rebuilt inside the sandbox. ZenCode A's sandbox starts with copies of `operator/README.md` and `operator/action_parser.py`, its improvement target. Nothing else from the checkout is copied in, and nothing is mounted.
+- `scripts/measure_cycle.py` scores `operator/` before and after an apply. It measures; it does not gate anything.
 
 ## Remaining Release Notes
 

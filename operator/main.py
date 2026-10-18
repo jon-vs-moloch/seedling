@@ -3,9 +3,15 @@ import base64
 import json
 import httpx
 import os
+import sys
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
+
+# action_parser.py sits next to this file. uvicorn runs from this directory,
+# but the tests load this file by path, so don't depend on the working directory.
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from action_parser import parse_action  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Configuration — all tunable via environment variables
@@ -155,13 +161,7 @@ Output ONLY the raw JSON object, no markdown blocks."""
             op_state["history"].append({"role": "user", "content": f"Goal: {goal}. Provide next action."})
             op_state["history"].append({"role": "assistant", "content": reply})
 
-            import re
-            match = re.search(r'\{.*\}', reply, re.DOTALL)
-            if match:
-                raw_json = match.group(0)
-                return json.loads(raw_json)
-            else:
-                return json.loads(reply.strip('`').strip('json').strip())
+            return parse_action(reply)
     except Exception as e:
         import traceback
         err_msg = traceback.format_exc()

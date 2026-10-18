@@ -105,7 +105,7 @@ What has not been shown yet: a full cycle where an operator drives ZenCode to a 
 
 - applying an artifact copies it over `zencode/` or `operator/` in place. There is no backup and no automatic rollback (use git);
 - nothing tests an artifact before a human applies it;
-- ZenCode sandboxes start empty, so an improvement has to be rebuilt inside the sandbox rather than edited from the current source;
+- ZenCode B's sandbox starts empty, so a ZenCode improvement has to be rebuilt inside the sandbox. ZenCode A's starts with the operator's docs and its action parser ([`operator/README.md`](operator/README.md)), the one file it is asked to improve;
 - ports are fixed.
 
 [`docs/SAFETY.md`](docs/SAFETY.md) has the safety notes. [`design-doc-v0.md`](design-doc-v0.md) and [`design-doc-v1.md`](design-doc-v1.md) describe where it is headed.
@@ -118,6 +118,7 @@ What has not been shown yet: a full cycle where an operator drives ZenCode to a 
 | [`zencode/`](zencode) | The coding agent and its UI |
 | [`operator/`](operator) | The vision operator and its control page |
 | [`desktop/`](desktop) | Optional Tauri shell |
+| [`scripts/`](scripts) | Preflight, smoke tests, the cycle driver (`run_cycle.py`) and the cycle measurement (`measure_cycle.py`) |
 | [`tests/`](tests) | Smoke tests (`scripts/test.sh`) |
 
 ## License

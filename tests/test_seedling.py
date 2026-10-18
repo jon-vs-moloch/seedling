@@ -326,6 +326,116 @@ class SupervisorProcessTests(unittest.TestCase):
         self.assertEqual(log_name, f"seedling-{os.getpid()}-child.log")
 
 
+class SupervisorSeedTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.sup_module = load_module("supervisor_main_seed", ROOT / "supervisor" / "main.py", ROOT / "supervisor")
+
+    def test_lane_a_seed_is_the_operator_docs_and_parser(self):
+        source_dir, names = self.sup_module.SANDBOX_A_SEED
+        self.assertEqual(Path(source_dir), ROOT / "operator")
+        self.assertEqual(tuple(names), ("README.md", "action_parser.py"))
+        for name in names:
+            self.assertTrue((ROOT / "operator" / name).is_file(), name)
+
+    def test_seed_copies_named_regular_files_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "src"
+            sandbox = Path(tmp) / "sandbox"
+            source.mkdir()
+            sandbox.mkdir()
+            (source / "README.md").write_text("docs")
+            (source / "other.py").write_text("not named")
+            (Path(tmp) / "secret.txt").write_text("secret")
+            (source / "link.py").symlink_to(Path(tmp) / "secret.txt")
+            seeded = self.sup_module.Supervisor()._seed_sandbox(
+                str(sandbox), str(source), ("README.md", "link.py", "missing.py", "../secret.txt"),
+            )
+            self.assertEqual(seeded, ["README.md"])
+            self.assertEqual(sorted(p.name for p in sandbox.iterdir()), ["README.md"])
+            self.assertEqual((sandbox / "README.md").read_text(), "docs")
+
+
+class MeasureCycleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.measure = load_module("measure_cycle", ROOT / "scripts" / "measure_cycle.py", ROOT)
+
+    def write_parser(self, tmp, source):
+        operator_dir = Path(tmp) / "operator"
+        operator_dir.mkdir()
+        (operator_dir / "action_parser.py").write_text(source)
+        return str(operator_dir)
+
+    def write_corpus(self, tmp, cases):
+        corpus = Path(tmp) / "corpus.jsonl"
+        corpus.write_text("".join(json.dumps(case) + "\n" for case in cases), encoding="utf-8")
+        return str(corpus)
+
+    def test_corpus_is_well_formed(self):
+        cases = self.measure.load_corpus(self.measure.DEFAULT_CORPUS)
+        self.assertGreaterEqual(len(cases), 20)
+        self.assertEqual(len({case["id"] for case in cases}), len(cases))
+        for case in cases:
+            self.assertIsInstance(case["reply"], str, case["id"])
+            self.assertIn("class", case)
+            self.assertIn("source", case)
+            expect = case["expect"]
+            if expect == "refuse":
+                continue
+            self.assertIn(expect["action"], self.measure.REQUIRED_KEYS, case["id"])
+            self.assertEqual(set(expect), {"action", *self.measure.REQUIRED_KEYS[expect["action"]]}, case["id"])
+
+    def test_scores_each_reply_against_the_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            operator_dir = self.write_parser(tmp, (
+                "import json\n"
+                "def parse_action(reply):\n"
+                "    if reply == 'boom':\n"
+                "        raise KeyError('boom')\n"
+                "    return json.loads(reply)\n"
+            ))
+            corpus = self.write_corpus(tmp, [
+                {"id": "ok", "class": "t", "source": "t", "reply": '{"action": "wait", "ms": 5, "why": "x"}', "expect": {"action": "wait", "ms": 5}},
+                {"id": "wrong-type", "class": "t", "source": "t", "reply": '{"action": "wait", "ms": "5"}', "expect": {"action": "wait", "ms": 5}},
+                {"id": "refused", "class": "t", "source": "t", "reply": "nope", "expect": "refuse"},
+                {"id": "crash", "class": "t", "source": "t", "reply": "boom", "expect": "refuse"},
+                {"id": "accepted-junk", "class": "t", "source": "t", "reply": '{"action": "click"}', "expect": "refuse"},
+            ])
+            result = self.measure.score_parser(operator_dir, corpus)
+        self.assertIsNone(result["error"])
+        verdicts = {case["id"]: case["pass"] for case in result["cases"]}
+        self.assertEqual(verdicts, {"ok": True, "wrong-type": False, "refused": True, "crash": False, "accepted-junk": False})
+        self.assertEqual((result["passed"], result["total"]), (2, 5))
+
+    def test_a_hanging_reply_is_cut_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            operator_dir = self.write_parser(tmp, (
+                "def parse_action(reply):\n"
+                "    while reply == 'hang':\n"
+                "        pass\n"
+                "    return {'action': 'done'}\n"
+            ))
+            corpus = self.write_corpus(tmp, [
+                {"id": "hang", "class": "t", "source": "t", "reply": "hang", "expect": {"action": "done"}},
+                {"id": "fine", "class": "t", "source": "t", "reply": "x", "expect": {"action": "done"}},
+            ])
+            result = self.measure.score_parser(operator_dir, corpus)
+        outcomes = {case["id"]: case["outcome"]["kind"] for case in result["cases"]}
+        self.assertEqual(outcomes, {"hang": "timeout", "fine": "action"})
+        self.assertEqual(result["passed"], 1)
+
+    def test_a_parser_that_fails_to_import_scores_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            operator_dir = self.write_parser(tmp, "this is not python\n")
+            corpus = self.write_corpus(tmp, [
+                {"id": "a", "class": "t", "source": "t", "reply": "{}", "expect": "refuse"},
+            ])
+            result = self.measure.score_parser(operator_dir, corpus)
+        self.assertEqual(result["passed"], 0)
+        self.assertIn("exited", result["error"])
+
+
 class UiAssetTests(unittest.TestCase):
     UI_FILES = [
         "supervisor/static/index.html", "supervisor/static/app.js", "supervisor/static/style.css",

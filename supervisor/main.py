@@ -42,6 +42,15 @@ MAX_ARTIFACT_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_BYTES", str(25 * 
 MAX_ARTIFACT_EXPANDED_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_EXPANDED_BYTES", str(50 * 1024 * 1024)))
 MAX_ARTIFACT_MEMBERS = int(os.environ.get("SEEDLING_MAX_ARTIFACT_MEMBERS", "1000"))
 
+# Lane A's ZenCode improves operator/. Its sandbox starts with copies of the
+# operator's docs and of the one file it is asked to improve, so the agent
+# edits the current source instead of rebuilding it from nothing. These are
+# copies, not mounts: nothing in the sandbox can reach the checked-out
+# operator/. Whatever the sandbox holds at Ship Update is the artifact, and
+# Apply copies it over operator/, so seed only files that belong there.
+# Lane B's sandbox starts empty.
+SANDBOX_A_SEED = (OPERATOR_SRC, ("README.md", "action_parser.py"))
+
 # ---------------------------------------------------------------------------
 # Process registry
 # ---------------------------------------------------------------------------
@@ -131,6 +140,20 @@ class Supervisor:
         env.update(mp.env_extras)
         return env
 
+    def _seed_sandbox(self, sandbox_dir, source_dir, names):
+        """Copy the named regular files from source_dir into a fresh sandbox."""
+        seeded = []
+        for name in names:
+            source = os.path.join(source_dir, name)
+            if os.path.basename(name) != name or os.path.islink(source) or not os.path.isfile(source):
+                self.log(f"Not seeding {name}: not a regular file in {source_dir}", source="supervisor", level="error")
+                continue
+            shutil.copyfile(source, os.path.join(sandbox_dir, name))
+            seeded.append(name)
+        if seeded:
+            self.log(f"Seeded {os.path.basename(sandbox_dir)} with {', '.join(seeded)}", source="supervisor")
+        return seeded
+
     def initialize(self):
         runtime_root = os.environ.get("SEEDLING_RUNTIME_DIR", RUNTIME_ROOT)
         os.makedirs(runtime_root, exist_ok=True)
@@ -151,6 +174,8 @@ class Supervisor:
 
         for d in [sandbox_a, sandbox_b, work_a, work_b, self.quarantine_dir]:
             os.makedirs(d, exist_ok=True)
+
+        self._seed_sandbox(sandbox_a, *SANDBOX_A_SEED)
 
         # --- ZenCode instances ---
         self.processes["zencode_a"] = ManagedProcess(

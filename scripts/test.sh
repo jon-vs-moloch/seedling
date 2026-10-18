@@ -6,6 +6,6 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if [ ! -x .venv-test/bin/python ]; then
   python3 -m venv .venv-test
-  .venv-test/bin/pip install -q -r zencode/requirements.txt
+  .venv-test/bin/pip install -q -r zencode/requirements.txt -r supervisor/requirements.txt
 fi
 .venv-test/bin/python -m unittest discover -s tests -v

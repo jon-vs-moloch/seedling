@@ -28,6 +28,54 @@ TELEMETRY_LOG = os.path.join(WORK_DIR, "operator_telemetry.log")
 # ---------------------------------------------------------------------------
 app = FastAPI()
 
+# ---------------------------------------------------------------------------
+# Local request guard
+# ---------------------------------------------------------------------------
+# Binding to 127.0.0.1 keeps other machines out, but not web pages open in the
+# operator's own browser. So: the Host header must be a loopback name on this
+# server's port (this stops DNS rebinding), and a state-changing request must
+# come from this server's own page, not from another site (this stops
+# cross-site "simple" POSTs, which CORS never preflights). Scripts that send
+# no Origin and no Sec-Fetch-Site (curl, the operator's own HTTP calls) still work.
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def allowed_hosts(port):
+    hosts = {f"{name}:{port}" for name in LOOPBACK_HOSTS}
+    if port == 80:
+        hosts.update(LOOPBACK_HOSTS)
+    return hosts
+
+
+def local_request_refusal(headers, method, port):
+    """Why this request must be refused, or None. A header sent twice never matches."""
+    hosts = headers.getlist("host")
+    allowed = allowed_hosts(port) if port else set()
+    if len(hosts) != 1 or hosts[0].lower() not in allowed:
+        return "Host not allowed: this server answers only on 127.0.0.1, localhost or [::1]."
+    if method.upper() not in STATE_CHANGING_METHODS:
+        return None
+    origins = headers.getlist("origin")
+    if origins:
+        if len(origins) != 1 or origins[0].lower() not in {f"http://{host}" for host in allowed}:
+            return "Cross-origin request refused."
+        return None
+    fetch_sites = headers.getlist("sec-fetch-site")
+    if len(fetch_sites) > 1 or (fetch_sites and fetch_sites[0].lower() not in ("same-origin", "none")):
+        return "Cross-site request refused."
+    return None
+
+
+@app.middleware("http")
+async def local_request_guard(request: Request, call_next):
+    server = request.scope.get("server") or (None, None)
+    reason = local_request_refusal(request.headers, request.method, server[1])
+    if reason:
+        return JSONResponse(status_code=403, content={"error": reason})
+    return await call_next(request)
+
+
 # Serve operator dashboard static files from the source directory
 _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")

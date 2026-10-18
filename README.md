@@ -91,7 +91,7 @@ Optional settings (environment variables for `run.sh`):
 | `SEEDLING_SANDBOX_CPUS` / `_MEMORY` / `_PIDS` | `1` / `512m` / `128` | Resource caps |
 | `SEEDLING_RUNTIME_DIR` | `.seedling_runtime/` | Where sandboxes live. Must be mountable by your container runtime. |
 
-Every server binds to `127.0.0.1`. The dashboard's **Reset** button stops everything, deletes the runtime sandboxes and quarantine, and starts fresh. While the stack runs, each process writes its output to `<runtime dir>/zen_stack_*/<name>.log`; the stack directory is removed on shutdown and reset.
+Every server binds to `127.0.0.1` and refuses requests whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` on its port (DNS rebinding), and POSTs from any other web page (cross-site requests). There are no accounts or passwords, so other programs running as you can still call the APIs. The dashboard's **Reset** button stops everything, deletes the runtime sandboxes and quarantine, and starts fresh. While the stack runs, each process writes its output to `<runtime dir>/zen_stack_*/<name>.log`; the stack directory is removed on shutdown and reset.
 
 ### Desktop shell
 

@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function escapeHtml(value) {
         const div = document.createElement('div');
         div.textContent = String(value ?? '');
-        return div.innerHTML;
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // Model output is untrusted: escape everything, then render ``` fences as
@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Setup: probe the endpoint, pick a model, initialize
     // -----------------------------------------------------------
     probeBtn.addEventListener('click', async () => {
+        if (DEMO) return;
         const urlInput = $('endpointUrl').value.trim().replace(/\/+$/, '');
         if (!urlInput) {
             errorMsg.textContent = 'Enter an endpoint URL first.';
@@ -113,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (DEMO) return;
         const base_url = $('endpointUrl').value.trim().replace(/\/+$/, '');
         const model_id = modelSelect.value;
         startBtn.disabled = true;

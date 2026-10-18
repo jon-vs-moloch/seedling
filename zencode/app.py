@@ -6,12 +6,61 @@ import subprocess
 import shutil
 import tarfile
 import hashlib
+from urllib.parse import urlsplit, urlunsplit
 from fastapi import FastAPI, Request, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 import logging
 
 app = FastAPI()
+
+# ---------------------------------------------------------------------------
+# Local request guard
+# ---------------------------------------------------------------------------
+# Binding to 127.0.0.1 keeps other machines out, but not web pages open in the
+# operator's own browser. So: the Host header must be a loopback name on this
+# server's port (this stops DNS rebinding), and a state-changing request must
+# come from this server's own page, not from another site (this stops
+# cross-site "simple" POSTs, which CORS never preflights). Scripts that send
+# no Origin and no Sec-Fetch-Site (curl, the operator's own HTTP calls) still work.
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def allowed_hosts(port):
+    hosts = {f"{name}:{port}" for name in LOOPBACK_HOSTS}
+    if port == 80:
+        hosts.update(LOOPBACK_HOSTS)
+    return hosts
+
+
+def local_request_refusal(headers, method, port):
+    """Why this request must be refused, or None. A header sent twice never matches."""
+    hosts = headers.getlist("host")
+    allowed = allowed_hosts(port) if port else set()
+    if len(hosts) != 1 or hosts[0].lower() not in allowed:
+        return "Host not allowed: this server answers only on 127.0.0.1, localhost or [::1]."
+    if method.upper() not in STATE_CHANGING_METHODS:
+        return None
+    origins = headers.getlist("origin")
+    if origins:
+        if len(origins) != 1 or origins[0].lower() not in {f"http://{host}" for host in allowed}:
+            return "Cross-origin request refused."
+        return None
+    fetch_sites = headers.getlist("sec-fetch-site")
+    if len(fetch_sites) > 1 or (fetch_sites and fetch_sites[0].lower() not in ("same-origin", "none")):
+        return "Cross-site request refused."
+    return None
+
+
+@app.middleware("http")
+async def local_request_guard(request: Request, call_next):
+    server = request.scope.get("server") or (None, None)
+    reason = local_request_refusal(request.headers, request.method, server[1])
+    if reason:
+        return JSONResponse(status_code=403, content={"error": reason})
+    return await call_next(request)
+
 
 # Mount frontend
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -55,6 +104,11 @@ def ensure_sandbox_dir():
         sandbox_state["sandbox_dir"] = tempfile.mkdtemp(prefix="zen_sandbox_", dir=runtime_root)
     return sandbox_state["sandbox_dir"]
 
+def existing_sandbox_dir():
+    """The sandbox dir if it exists already. Never creates one (for read-only endpoints)."""
+    current = sandbox_state["sandbox_dir"] or os.environ.get("ZENCODE_SANDBOX_DIR")
+    return current if current and os.path.isdir(current) else None
+
 def resolve_sandbox_path(path: str):
     root = os.path.realpath(ensure_sandbox_dir())
     if not path or "\x00" in path:
@@ -71,6 +125,18 @@ def container_runtime():
     if SANDBOX_RUNTIME:
         return SANDBOX_RUNTIME
     return shutil.which("docker") or shutil.which("podman")
+
+def redact_userinfo(url):
+    """Drop any user:password@ from a URL before it is shown or logged."""
+    if not url:
+        return url
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return "(unparseable URL)"
+    if "@" not in parts.netloc:
+        return url
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
 
 # ---------------------------------------------------------------------------
 # Native Tool Definitions (OpenAI function-calling format)
@@ -263,7 +329,7 @@ async def init_agent(req: Request):
 
     log_event(f"Sandbox initialized at {sandbox_state['sandbox_dir']}", "log-cmd")
     log_event(f"Sandbox mode: {SANDBOX_MODE}; network: {SANDBOX_NETWORK}; image: {SANDBOX_IMAGE}", "log-cmd")
-    log_event(f"Using model {sandbox_state['model_id']} via {sandbox_state['base_url']}")
+    log_event(f"Using model {sandbox_state['model_id']} via {redact_userinfo(sandbox_state['base_url'])}")
     return {"status": "success"}
 
 
@@ -440,7 +506,7 @@ async def get_status():
     runtime = container_runtime()
     return {
         "model_id": sandbox_state["model_id"],
-        "base_url": sandbox_state["base_url"],
+        "base_url": redact_userinfo(sandbox_state["base_url"]),
         "sandbox_mode": SANDBOX_MODE,
         "container_runtime": os.path.basename(runtime) if runtime else None,
         "network": SANDBOX_NETWORK,
@@ -458,7 +524,10 @@ async def list_files():
 
     Read-only, bounded, and never follows symlinks out of the sandbox.
     """
-    root = os.path.realpath(ensure_sandbox_dir())
+    existing = existing_sandbox_dir()
+    if existing is None:
+        return {"files": [], "truncated": False}
+    root = os.path.realpath(existing)
     files = []
     truncated = False
     for current, dirs, filenames in os.walk(root, followlinks=False):
@@ -470,7 +539,11 @@ async def list_files():
             if len(files) >= MAX_LISTED_FILES:
                 truncated = True
                 break
-            files.append({"path": os.path.relpath(path, root), "bytes": os.path.getsize(path)})
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue  # removed between the walk and the stat
+            files.append({"path": os.path.relpath(path, root), "bytes": size})
         if truncated:
             break
     return {"files": files, "truncated": truncated}

@@ -158,7 +158,7 @@ class Supervisor:
             role="zencode",
             port=8000,
             cwd=ZENCODE_SRC,
-            cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8000"],
+            cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8000", "--no-access-log"],
             env_extras={
                 "ZENCODE_SANDBOX_DIR": sandbox_a,
                 "SEEDLING_SANDBOX_MODE": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
@@ -172,7 +172,7 @@ class Supervisor:
             role="zencode",
             port=8001,
             cwd=ZENCODE_SRC,
-            cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8001"],
+            cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8001", "--no-access-log"],
             env_extras={
                 "ZENCODE_SANDBOX_DIR": sandbox_b,
                 "SEEDLING_SANDBOX_MODE": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
@@ -188,7 +188,7 @@ class Supervisor:
             role="operator",
             port=9001,
             cwd=OPERATOR_SRC,
-            cmd=[OPERATOR_PYTHON, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "9001"],
+            cmd=[OPERATOR_PYTHON, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "9001", "--no-access-log"],
             env_extras={
                 "OPERATOR_TARGET": "http://127.0.0.1:8001/static/index.html",
                 "OPERATOR_GOAL": "Use ZenCode to improve the ZenCode codebase",
@@ -202,7 +202,7 @@ class Supervisor:
             role="operator",
             port=9000,
             cwd=OPERATOR_SRC,
-            cmd=[OPERATOR_PYTHON, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "9000"],
+            cmd=[OPERATOR_PYTHON, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "9000", "--no-access-log"],
             env_extras={
                 "OPERATOR_TARGET": "http://127.0.0.1:8000/static/index.html",
                 "OPERATOR_GOAL": "Use ZenCode to improve the Operator codebase",
@@ -214,23 +214,42 @@ class Supervisor:
 
     def start_process(self, name):
         mp = self.processes[name]
+        if mp.process and mp.process.poll() is None:
+            # Starting again would orphan the running child and leak its log handle.
+            self.log(f"{name} is already running (PID {mp.process.pid}).", source=name)
+            return
+        if mp.log_file:
+            # Left over from a child that exited before health_check noticed.
+            mp.log_file.close()
+            mp.log_file = None
         env = self._process_env(mp)
 
         self.log(f"Starting {name} on :{mp.port}...", source=name)
 
         # Send child output to a file in the stack workspace. An unread PIPE
-        # fills after ~64 KB of access logs and then blocks the child.
-        log_path = os.path.join(self.base_dir or tempfile.gettempdir(), f"{name}.log")
-        mp.log_file = open(log_path, "a", buffering=1)
-        mp.process = subprocess.Popen(
-            mp.cmd,
-            cwd=mp.cwd,
-            env=env,
-            stdout=mp.log_file,
-            stderr=subprocess.STDOUT,
-            preexec_fn=os.setsid,
-            text=True,
-        )
+        # fills after ~64 KB of access logs and then blocks the child. Without
+        # a stack workspace, the shared temp dir gets a per-supervisor name.
+        if self.base_dir:
+            log_path = os.path.join(self.base_dir, f"{name}.log")
+        else:
+            log_path = os.path.join(tempfile.gettempdir(), f"seedling-{os.getpid()}-{name}.log")
+        log_file = open(log_path, "a", buffering=1)
+        try:
+            mp.process = subprocess.Popen(
+                mp.cmd,
+                cwd=mp.cwd,
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                preexec_fn=os.setsid,
+                text=True,
+            )
+        except Exception:
+            log_file.close()
+            mp.process = None
+            mp.status = "stopped"
+            raise
+        mp.log_file = log_file
         mp.status = "running"
         mp.started_at = datetime.now().isoformat()
         self.log(f"{name} started (PID {mp.process.pid})", source=name)
@@ -502,6 +521,54 @@ class Supervisor:
 
 sup = Supervisor()
 app = FastAPI(title="ZenCode Supervisor")
+
+# ---------------------------------------------------------------------------
+# Local request guard
+# ---------------------------------------------------------------------------
+# Binding to 127.0.0.1 keeps other machines out, but not web pages open in the
+# operator's own browser. So: the Host header must be a loopback name on this
+# server's port (this stops DNS rebinding), and a state-changing request must
+# come from this server's own page, not from another site (this stops
+# cross-site "simple" POSTs, which CORS never preflights). Scripts that send
+# no Origin and no Sec-Fetch-Site (curl, the operator's own HTTP calls) still work.
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def allowed_hosts(port):
+    hosts = {f"{name}:{port}" for name in LOOPBACK_HOSTS}
+    if port == 80:
+        hosts.update(LOOPBACK_HOSTS)
+    return hosts
+
+
+def local_request_refusal(headers, method, port):
+    """Why this request must be refused, or None. A header sent twice never matches."""
+    hosts = headers.getlist("host")
+    allowed = allowed_hosts(port) if port else set()
+    if len(hosts) != 1 or hosts[0].lower() not in allowed:
+        return "Host not allowed: this server answers only on 127.0.0.1, localhost or [::1]."
+    if method.upper() not in STATE_CHANGING_METHODS:
+        return None
+    origins = headers.getlist("origin")
+    if origins:
+        if len(origins) != 1 or origins[0].lower() not in {f"http://{host}" for host in allowed}:
+            return "Cross-origin request refused."
+        return None
+    fetch_sites = headers.getlist("sec-fetch-site")
+    if len(fetch_sites) > 1 or (fetch_sites and fetch_sites[0].lower() not in ("same-origin", "none")):
+        return "Cross-site request refused."
+    return None
+
+
+@app.middleware("http")
+async def local_request_guard(request: Request, call_next):
+    server = request.scope.get("server") or (None, None)
+    reason = local_request_refusal(request.headers, request.method, server[1])
+    if reason:
+        return JSONResponse(status_code=403, content={"error": reason})
+    return await call_next(request)
+
 
 # Serve dashboard
 os.makedirs(STATIC_DIR, exist_ok=True)

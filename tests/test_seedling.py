@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +40,7 @@ class ZenCodeApiTests(unittest.TestCase):
         cls.sandbox.mkdir()
         os.environ["ZENCODE_SANDBOX_DIR"] = str(cls.sandbox)
         cls.zen = load_module("zencode_app", ROOT / "zencode" / "app.py", ROOT / "zencode")
-        cls.client = TestClient(cls.zen.app)
+        cls.client = TestClient(cls.zen.app, base_url="http://127.0.0.1:8000")
 
     @classmethod
     def tearDownClass(cls):
@@ -84,6 +85,51 @@ class ZenCodeApiTests(unittest.TestCase):
             self.zen.resolve_sandbox_path("../outside.txt")
         self.assertTrue(self.zen.resolve_sandbox_path("ok.txt").startswith(os.path.realpath(self.sandbox)))
 
+    def test_status_hides_userinfo_in_the_endpoint_url(self):
+        previous = self.zen.sandbox_state["base_url"]
+        self.zen.sandbox_state["base_url"] = "http://user:hunter2@127.0.0.1:1234/v1"
+        try:
+            status = self.client.get("/api/status").json()
+            self.assertEqual(status["base_url"], "http://127.0.0.1:1234/v1")
+            self.assertNotIn("hunter2", json.dumps(status))
+        finally:
+            self.zen.sandbox_state["base_url"] = previous
+
+    def test_files_does_not_create_a_missing_sandbox(self):
+        missing = Path(self.tmp.name) / "not-created"
+        previous = self.zen.sandbox_state["sandbox_dir"]
+        self.zen.sandbox_state["sandbox_dir"] = None
+        try:
+            with mock.patch.dict(os.environ, {"ZENCODE_SANDBOX_DIR": str(missing)}):
+                payload = self.client.get("/api/files").json()
+            self.assertEqual(payload, {"files": [], "truncated": False})
+            self.assertFalse(missing.exists())
+        finally:
+            self.zen.sandbox_state["sandbox_dir"] = previous
+
+    def test_files_skips_a_file_removed_during_the_listing(self):
+        (self.sandbox / "gone.txt").write_text("x")
+        with mock.patch.object(self.zen.os.path, "getsize", side_effect=FileNotFoundError):
+            response = self.client.get("/api/files")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["files"], [])
+
+    def test_cross_site_and_rebound_requests_are_refused(self):
+        self.zen.sandbox_state["base_url"] = None
+        self.zen.sandbox_state["model_id"] = None
+        evil = self.client.post("/api/chat", json={"message": "x"}, headers={"Origin": "https://evil.example"})
+        self.assertEqual(evil.status_code, 403)
+        stripped = self.client.post("/api/chat", json={"message": "x"}, headers={"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(stripped.status_code, 403)
+        other_port = self.client.post("/api/chat", json={"message": "x"}, headers={"Origin": "http://127.0.0.1:9999"})
+        self.assertEqual(other_port.status_code, 403)
+        rebound = self.client.get("/api/status", headers={"Host": "rebind.attacker.example:8000"})
+        self.assertEqual(rebound.status_code, 403)
+        # The page's own origin and Origin-less scripts are allowed.
+        own = self.client.post("/api/chat", json={"message": "x"}, headers={"Origin": "http://127.0.0.1:8000"})
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual(self.client.post("/api/chat", json={"message": "x"}).status_code, 200)
+
 
 class SupervisorQuarantineTests(unittest.TestCase):
     @classmethod
@@ -126,6 +172,90 @@ class SupervisorQuarantineTests(unittest.TestCase):
         self.addCleanup(os.unlink, handle.name)
         with self.assertRaises(ValueError):
             self.sup_module.Supervisor()._validate_archive(handle.name)
+
+
+class SupervisorGuardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+
+        cls.sup_module = load_module("supervisor_main_guard", ROOT / "supervisor" / "main.py", ROOT / "supervisor")
+        # No `with`: the startup hook (which launches the stack) does not run.
+        cls.client = TestClient(cls.sup_module.app, base_url="http://127.0.0.1:7000")
+
+    def test_cross_site_posts_are_refused(self):
+        # An unknown process name, so a guard regression gets a harmless 404
+        # instead of resetting (and launching) a real stack.
+        for headers in ({"Origin": "https://evil.example"}, {"Origin": "null"}, {"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"}):
+            response = self.client.post("/api/process/nope/start", headers=headers)
+            self.assertEqual(response.status_code, 403, headers)
+
+    def test_rebound_host_is_refused(self):
+        self.assertEqual(self.client.get("/api/safety", headers={"Host": "rebind.attacker.example:7000"}).status_code, 403)
+        self.assertEqual(self.client.get("/api/safety", headers={"Host": "127.0.0.1:7001"}).status_code, 403)
+        self.assertEqual(self.client.get("/api/safety").status_code, 200)
+
+    def test_own_page_and_scripts_pass_the_guard(self):
+        # An unknown process name gets past the guard and is answered 404 by the route.
+        own = self.client.post("/api/process/nope/start", headers={"Origin": "http://127.0.0.1:7000"})
+        self.assertEqual(own.status_code, 404)
+        self.assertEqual(self.client.post("/api/process/nope/start").status_code, 404)
+
+
+class SupervisorProcessTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.sup_module = load_module("supervisor_main_proc", ROOT / "supervisor" / "main.py", ROOT / "supervisor")
+
+    def make_supervisor(self, cmd, base_dir):
+        sup = self.sup_module.Supervisor()
+        sup.base_dir = base_dir
+        sup.processes["child"] = self.sup_module.ManagedProcess(
+            name="child", role="zencode", port=0, cwd=str(ROOT), cmd=cmd,
+        )
+        self.addCleanup(sup.stop_process, "child")
+        return sup
+
+    def test_failed_start_closes_the_log_file(self):
+        with tempfile.TemporaryDirectory() as base_dir:
+            sup = self.make_supervisor([os.path.join(base_dir, "no-such-binary")], base_dir)
+            # Keep a reference to every file start_process opens, so garbage
+            # collection cannot close a leaked handle on the code's behalf.
+            opened = []
+
+            def tracking_open(*args, **kwargs):
+                handle = open(*args, **kwargs)
+                opened.append(handle)
+                return handle
+
+            with mock.patch.object(self.sup_module, "open", tracking_open, create=True):
+                with self.assertRaises(OSError):
+                    sup.start_process("child")
+            self.assertEqual(len(opened), 1)
+            self.assertTrue(opened[0].closed)
+            self.assertIsNone(sup.processes["child"].log_file)
+            self.assertIsNone(sup.processes["child"].process)
+
+    def test_starting_a_running_process_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as base_dir:
+            sup = self.make_supervisor([sys.executable, "-c", "import time; time.sleep(30)"], base_dir)
+            sup.start_process("child")
+            first = sup.processes["child"].process
+            first_log = sup.processes["child"].log_file
+            sup.start_process("child")
+            self.assertIs(sup.processes["child"].process, first)
+            self.assertIs(sup.processes["child"].log_file, first_log)
+            sup.stop_process("child")
+            self.assertIsNone(sup.processes["child"].process)
+            self.assertTrue(first_log.closed)
+
+    def test_fallback_log_path_is_per_supervisor(self):
+        sup = self.make_supervisor([sys.executable, "-c", "pass"], None)
+        sup.start_process("child")
+        log_name = os.path.basename(sup.processes["child"].log_file.name)
+        sup.stop_process("child")
+        self.addCleanup(os.unlink, os.path.join(tempfile.gettempdir(), log_name))
+        self.assertEqual(log_name, f"seedling-{os.getpid()}-child.log")
 
 
 class UiAssetTests(unittest.TestCase):

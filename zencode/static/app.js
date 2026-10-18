@@ -1,57 +1,109 @@
+/*
+ * ZenCode UI.
+ *
+ * Live mode talks to the ZenCode server (/api/probe, /api/init, /api/chat,
+ * /api/logs, /api/files, /api/ship_update). Demo mode (?demo) skips setup and
+ * renders demo.json with a "Demo data" banner; nothing is sent anywhere.
+ */
 document.addEventListener('DOMContentLoaded', () => {
-    const setupScreen = document.getElementById('setupScreen');
-    const workspaceScreen = document.getElementById('workspaceScreen');
-    const probeBtn = document.getElementById('probeBtn');
-    const loader = document.getElementById('probeLoader');
+    const DEMO = new URLSearchParams(location.search).has('demo');
+    const $ = (id) => document.getElementById(id);
+    const setupScreen = $('setupScreen');
+    const workspaceScreen = $('workspaceScreen');
+    const probeBtn = $('probeBtn');
+    const loader = $('probeLoader');
     const btnText = probeBtn.querySelector('.btn-text');
-    const modelSelection = document.getElementById('modelSelection');
-    const modelSelect = document.getElementById('modelSelect');
-    const startBtn = document.getElementById('startBtn');
-    const errorMsg = document.getElementById('errorMsg');
-    const setupForm = document.getElementById('setupForm');
-    
-    // Probing logic
+    const modelSelection = $('modelSelection');
+    const modelSelect = $('modelSelect');
+    const startBtn = $('startBtn');
+    const errorMsg = $('errorMsg');
+    const setupForm = $('setupForm');
+    const chatHistory = $('chatHistory');
+    const taskInput = $('taskInput');
+    const sendTaskBtn = $('sendTaskBtn');
+    const termOutput = $('termOutput');
+    const fileTree = $('fileTree');
+    const shipUpdateBtn = $('shipUpdateBtn');
+
+    const forcedTheme = new URLSearchParams(location.search).get('theme');
+    if (forcedTheme === 'light' || forcedTheme === 'dark') document.documentElement.dataset.theme = forcedTheme;
+
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = String(value ?? '');
+        return div.innerHTML;
+    }
+
+    // Model output is untrusted: escape everything, then render ``` fences as
+    // <pre> and `inline` as <code>.
+    function renderText(text) {
+        const parts = String(text ?? '').split(/```[a-zA-Z0-9_-]*\n?/);
+        return parts.map((part, i) => {
+            if (i % 2 === 1) return `<pre>${escapeHtml(part.replace(/\n$/, ''))}</pre>`;
+            return part.split('\n').filter((line, idx, all) => line.trim() || (idx > 0 && idx < all.length - 1))
+                .map((line) => `<p>${escapeHtml(line).replace(/`([^`]+)`/g, '<code>$1</code>')}</p>`).join('');
+        }).join('');
+    }
+
+    function formatBytes(n) {
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+        return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    // -----------------------------------------------------------
+    // Status facts (sandbox mode, network) for setup and workspace
+    // -----------------------------------------------------------
+    function showStatus(status) {
+        const sandbox = status.sandbox_mode === 'container'
+            ? (status.container_runtime ? `container (${status.container_runtime})` : 'container: runtime missing, commands blocked')
+            : `${status.sandbox_mode} (host shell, development only)`;
+        $('factSandbox').textContent = sandbox;
+        $('factSandbox').className = status.sandbox_mode === 'container' && status.container_runtime ? '' : 'warn';
+        $('factNetwork').textContent = status.network === 'none' ? 'none (offline)' : status.network;
+        $('sandboxChip').textContent = status.sandbox_mode === 'container'
+            ? (status.container_runtime ? `container · network ${status.network}` : 'container runtime missing')
+            : `${status.sandbox_mode} sandbox`;
+        $('sandboxChip').className = `chip ${status.sandbox_mode === 'container' && status.container_runtime ? 'ok' : 'warn'}`;
+        if (status.model_id) {
+            $('modelChip').textContent = status.model_id;
+            $('modelChip').className = 'chip info';
+        }
+    }
+
+    // -----------------------------------------------------------
+    // Setup: probe the endpoint, pick a model, initialize
+    // -----------------------------------------------------------
     probeBtn.addEventListener('click', async () => {
-        const urlInput = document.getElementById('endpointUrl').value;
+        const urlInput = $('endpointUrl').value.trim().replace(/\/+$/, '');
         if (!urlInput) {
-            errorMsg.textContent = 'Please enter an endpoint URL';
+            errorMsg.textContent = 'Enter an endpoint URL first.';
             return;
         }
-
         errorMsg.textContent = '';
         btnText.classList.add('hidden');
         loader.classList.remove('hidden');
-
         try {
-            // Usually /v1/models for OpenAI compatible endpoints
-            const mUrl = urlInput.endsWith('/v1') ? `${urlInput}/models` : `${urlInput}/v1/models`;
-            
-            // Forwarding to our python backend to avoid CORS if needed
-            // For now, attempting direct fetch. If CORS fails, it will error, so we proxy via backend:
+            const modelsUrl = urlInput.endsWith('/v1') ? `${urlInput}/models` : `${urlInput}/v1/models`;
+            // Proxied through the ZenCode server to avoid CORS.
             const response = await fetch('/api/probe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: mUrl })
+                body: JSON.stringify({ url: modelsUrl }),
             });
-
-            if (!response.ok) throw new Error('Failed to fetch models');
             const data = await response.json();
-            
-            if (data.data && data.data.length > 0) {
-                modelSelect.innerHTML = '';
-                data.data.forEach(m => {
-                    const opt = document.createElement('option');
-                    opt.value = m.id;
-                    opt.textContent = m.id;
-                    modelSelect.appendChild(opt);
-                });
-                
-                probeBtn.classList.add('hidden');
-                modelSelection.classList.remove('hidden');
-                startBtn.classList.remove('hidden');
-            } else {
-                throw new Error('No models found at endpoint');
-            }
+            if (!response.ok) throw new Error(data.error || 'Could not list models at that endpoint.');
+            if (!data.data || !data.data.length) throw new Error('The endpoint answered but lists no models.');
+            modelSelect.innerHTML = '';
+            data.data.forEach((m) => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.id;
+                modelSelect.appendChild(opt);
+            });
+            probeBtn.classList.add('hidden');
+            modelSelection.classList.remove('hidden');
+            startBtn.classList.remove('hidden');
         } catch (e) {
             errorMsg.textContent = e.message;
             btnText.classList.remove('hidden');
@@ -59,68 +111,91 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Start Workspace
-    setupForm.addEventListener('submit', (e) => {
+    setupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const base_url = document.getElementById('endpointUrl').value;
+        const base_url = $('endpointUrl').value.trim().replace(/\/+$/, '');
         const model_id = modelSelect.value;
-        
-        // init agent backend
-        fetch('/api/init', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ base_url, model_id })
-        }).then(() => {
-            setupScreen.style.opacity = '0';
-            setTimeout(() => {
-                setupScreen.classList.add('hidden');
-                workspaceScreen.classList.remove('hidden');
-                workspaceScreen.classList.add('fade-in');
-            }, 500);
-        });
+        startBtn.disabled = true;
+        try {
+            await fetch('/api/init', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base_url, model_id }),
+            });
+            openWorkspace();
+            refreshStatus();
+        } catch (err) {
+            errorMsg.textContent = 'Could not initialize the workspace.';
+            startBtn.disabled = false;
+        }
     });
 
-    // View Toggles
-    const toggleBtns = document.querySelectorAll('.toggle-btn');
-    const views = document.querySelectorAll('.view-content');
+    function openWorkspace() {
+        setupScreen.classList.add('hidden');
+        workspaceScreen.classList.remove('hidden');
+        taskInput.focus();
+    }
 
-    toggleBtns.forEach(btn => {
+    // -----------------------------------------------------------
+    // Sandbox views
+    // -----------------------------------------------------------
+    document.querySelectorAll('.toggle-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
-            toggleBtns.forEach(b => b.classList.remove('active'));
-            views.forEach(v => v.style.display = 'none');
-            
-            btn.classList.add('active');
-            document.getElementById(btn.dataset.view + 'View').style.display = 'flex';
+            document.querySelectorAll('.toggle-btn').forEach((b) => b.classList.toggle('active', b === btn));
+            $('terminalView').classList.toggle('hidden', btn.dataset.view !== 'terminal');
+            $('filesView').classList.toggle('hidden', btn.dataset.view !== 'files');
+            if (btn.dataset.view === 'files') refreshFiles();
         });
     });
 
-    // Chat Logic
-    const sendTaskBtn = document.getElementById('sendTaskBtn');
-    const taskInput = document.getElementById('taskInput');
-    const chatHistory = document.getElementById('chatHistory');
+    function logTerm(text, type = 'log-out') {
+        const div = document.createElement('div');
+        div.className = `log-entry ${type}`;
+        div.textContent = type === 'log-cmd' ? text : text.replace(/\n$/, '');
+        const nearBottom = termOutput.scrollHeight - termOutput.scrollTop - termOutput.clientHeight < 40;
+        termOutput.appendChild(div);
+        if (nearBottom) termOutput.scrollTop = termOutput.scrollHeight;
+    }
 
+    function renderFiles(files) {
+        if (!files.length) {
+            fileTree.innerHTML = '<div class="file-empty">The sandbox is empty.</div>';
+            return;
+        }
+        fileTree.innerHTML = files.map((f) => {
+            const slash = f.path.lastIndexOf('/');
+            const dir = slash >= 0 ? `<span class="dir">${escapeHtml(f.path.slice(0, slash + 1))}</span>` : '';
+            return `<div class="file-row"><span>${dir}${escapeHtml(f.path.slice(slash + 1))}</span><span class="size">${formatBytes(f.bytes)}</span></div>`;
+        }).join('');
+    }
+
+    async function refreshFiles() {
+        if (DEMO) return;
+        try {
+            const r = await fetch('/api/files');
+            const data = await r.json();
+            renderFiles(data.files || []);
+        } catch {
+            fileTree.innerHTML = '<div class="file-empty">Could not list sandbox files.</div>';
+        }
+    }
+
+    async function refreshStatus() {
+        if (DEMO) return;
+        try { showStatus(await (await fetch('/api/status')).json()); } catch {}
+    }
+
+    // -----------------------------------------------------------
+    // Chat
+    // -----------------------------------------------------------
     function addMessage(role, text) {
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role}-message`;
-        
-        const avatar = document.createElement('div');
-        avatar.className = `avatar ${role}-avatar`;
-        if (role === 'user') avatar.textContent = 'U';
-        if (role === 'agent') avatar.textContent = 'A';
-        if (role === 'system') avatar.textContent = 'S';
-
-        const content = document.createElement('div');
-        content.className = 'msg-content';
-        
-        // basic parser for tool output
-        let htmlText = text.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-        htmlText = htmlText.split('\n').map(line => `<p>${line}</p>`).join('');
-        content.innerHTML = htmlText;
-
-        msgDiv.appendChild(avatar);
-        msgDiv.appendChild(content);
+        const avatar = { user: 'U', agent: 'Z', system: 'S' }[role] || '?';
+        msgDiv.innerHTML = `<div class="avatar">${avatar}</div><div class="msg-content">${renderText(text)}</div>`;
         chatHistory.appendChild(msgDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
+        return msgDiv;
     }
 
     taskInput.addEventListener('keydown', (e) => {
@@ -132,55 +207,79 @@ document.addEventListener('DOMContentLoaded', () => {
 
     sendTaskBtn.addEventListener('click', async () => {
         const text = taskInput.value.trim();
-        if(!text) return;
-
+        if (!text) return;
+        if (DEMO) { addMessage('system', 'Demo data: nothing is sent to a model.'); return; }
         addMessage('user', text);
         taskInput.value = '';
-
+        sendTaskBtn.disabled = true;
+        const pending = addMessage('agent', 'Working… tool calls appear in the terminal.');
+        pending.classList.add('pending');
         try {
             const res = await fetch('/api/chat', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ message: text })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text }),
             });
             const data = await res.json();
-            addMessage('agent', data.response);
-        } catch(e) {
-            addMessage('system', 'Error communicating with supervisor sandbox.');
+            pending.remove();
+            addMessage('agent', data.response || '(no reply)');
+        } catch (e) {
+            pending.remove();
+            addMessage('system', 'Could not reach the ZenCode server.');
+        } finally {
+            sendTaskBtn.disabled = false;
+            refreshFiles();
         }
     });
 
-    // Polling sandbox state (mock logs for wow factor)
-    const termOutput = document.getElementById('termOutput');
-    function logTerm(text, type='log-out') {
-        const div = document.createElement('div');
-        div.className = `log-entry ${type}`;
-        div.textContent = `> ${text}`;
-        termOutput.appendChild(div);
-        termOutput.scrollTop = termOutput.scrollHeight;
+    // -----------------------------------------------------------
+    // Ship: pack the sandbox into the outbox for the supervisor
+    // -----------------------------------------------------------
+    const shipLabel = shipUpdateBtn.innerHTML;
+    shipUpdateBtn.addEventListener('click', async () => {
+        if (DEMO) { logTerm('Demo data: nothing was shipped.', 'log-err'); return; }
+        shipUpdateBtn.disabled = true;
+        try {
+            const r = await fetch('/api/ship_update', { method: 'POST' });
+            const data = await r.json();
+            if (r.ok) {
+                logTerm(`Shipped ${data.artifact} (${formatBytes(data.bytes)}) to the outbox. The supervisor will quarantine it.`, 'log-cmd');
+                shipUpdateBtn.textContent = 'Shipped';
+            } else {
+                logTerm(`Ship failed: ${data.error}`, 'log-err');
+            }
+        } finally {
+            setTimeout(() => { shipUpdateBtn.innerHTML = shipLabel; shipUpdateBtn.disabled = false; }, 2500);
+        }
+    });
+
+    // -----------------------------------------------------------
+    // Start
+    // -----------------------------------------------------------
+    if (DEMO) {
+        $('demoBanner').hidden = false;
+        document.title = 'ZenCode · demo data';
+        fetch('demo.json').then((r) => r.json()).then((demo) => {
+            showStatus(demo.status);
+            openWorkspace();
+            chatHistory.innerHTML = '';
+            demo.messages.forEach((m) => addMessage(m.role, m.text));
+            demo.logs.forEach((l) => logTerm(l.msg, l.type));
+            renderFiles(demo.files);
+            if (new URLSearchParams(location.search).get('view') === 'files') document.querySelector('[data-view="files"]').click();
+            taskInput.blur();
+        });
+        return;
     }
 
+    refreshStatus();
     let logOffset = 0;
     setInterval(async () => {
         try {
             const r = await fetch(`/api/logs?offset=${logOffset}`);
             const data = await r.json();
-            data.logs.forEach(l => {
-                logTerm(l.msg, l.type);
-            });
+            data.logs.forEach((l) => logTerm(l.msg, l.type));
             logOffset = data.next_offset;
-        } catch(e) {}
-    }, 2000);
-
-    const shipUpdateBtn = document.getElementById('shipUpdateBtn');
-    if (shipUpdateBtn) {
-        shipUpdateBtn.addEventListener('click', async () => {
-            const r = await fetch('/api/ship_update', { method: 'POST' });
-            if (r.ok) {
-                logTerm('Artifact successfully zipped and pushed to /outbox!', 'log-cmd');
-                shipUpdateBtn.textContent = '✅ Shipped!';
-                setTimeout(()=> shipUpdateBtn.textContent = '📦 Ship Update', 3000);
-            }
-        });
-    }
+        } catch {}
+    }, 1500);
 });

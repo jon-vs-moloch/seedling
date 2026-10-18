@@ -3,114 +3,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zen Agent</title>
+    <title>ZenCode</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 </head>
+<!--
+  ZenCode is driven by vision-model operators that only see screenshots.
+  Keep controls large, high-contrast and labelled with plain words: the
+  operator prompt targets text such as "Connect & Probe" and structural
+  selectors such as input[type='url'] and textarea.
+-->
 <body>
-    <div id="stars"></div>
-    <div id="stars2"></div>
-    <div id="stars3"></div>
-    
-    <div class="app-container">
-        <!-- Setup Screen -->
-        <main id="setupScreen" class="glass-panel slide-up">
-            <div class="logo-container">
-                <div class="zen-logo">
-                    <div class="orb"></div>
-                    <div class="rings">
-                        <div class="ring r1"></div>
-                        <div class="ring r2"></div>
-                        <div class="ring r3"></div>
-                    </div>
+    <div class="demo-banner" id="demoBanner" hidden>
+        <strong>DEMO DATA</strong>
+        <span>Sample conversation, terminal and files. Nothing here ran. Remove <code>?demo</code> to use the real agent.</span>
+    </div>
+
+    <!-- Setup -->
+    <main id="setupScreen" class="setup">
+        <div class="setup-card card">
+            <div class="brand">
+                <svg viewBox="0 0 32 32" aria-hidden="true">
+                    <rect width="32" height="32" rx="8" fill="var(--text)"/>
+                    <path d="M10 11h12l-12 10h12" fill="none" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <div>
+                    <h1>ZenCode</h1>
+                    <p>A deliberately tiny coding agent. Three tools, one sandbox.</p>
                 </div>
-                <h1>Zen Agent OS</h1>
-                <p class="subtitle">A sandboxed minimalist coding agent</p>
             </div>
 
             <form id="setupForm" class="setup-form">
-                <div class="input-group">
+                <div class="field">
                     <label for="endpointUrl">Inference Endpoint URL</label>
-                    <input type="url" id="endpointUrl" placeholder="e.g. http://127.0.0.1:1234/v1" required>
-                    <span class="hint">OpenAI-compatible endpoints (LM Studio, LocalAI, vLLM, etc.)</span>
-                </div>
-                
-                <button type="button" id="probeBtn" class="primary-btn pulse-glow">
-                    <span class="btn-text">Connect & Probe</span>
-                    <div class="loader hidden" id="probeLoader"></div>
-                </button>
-
-                <div id="modelSelection" class="input-group hidden fade-in">
-                    <label for="modelSelect">Select Model</label>
-                    <div class="select-wrapper">
-                        <select id="modelSelect"></select>
-                    </div>
+                    <input type="url" id="endpointUrl" placeholder="http://127.0.0.1:1234/v1" required>
+                    <span class="hint">Any OpenAI-compatible server with tool calling: LM Studio, llama.cpp, vLLM, LocalAI…</span>
                 </div>
 
-                <button type="submit" id="startBtn" class="primary-btn hidden slide-up">
-                    Initialize Workspace
+                <button type="button" id="probeBtn" class="btn primary large">
+                    <span class="btn-text">Connect &amp; Probe</span>
+                    <span class="loader hidden" id="probeLoader" aria-hidden="true"></span>
                 </button>
-                
-                <div id="errorMsg" class="error-msg"></div>
+
+                <div id="modelSelection" class="field hidden">
+                    <label for="modelSelect">Model</label>
+                    <select id="modelSelect"></select>
+                </div>
+
+                <button type="submit" id="startBtn" class="btn primary large hidden">Initialize Workspace</button>
+
+                <div id="errorMsg" class="error-msg" role="alert"></div>
             </form>
-        </main>
 
-        <!-- Main Workspace (Hidden initially) -->
-        <main id="workspaceScreen" class="workspace hidden">
-            <!-- Left Panel: Chat & Supervisor -->
-            <div class="side-panel chat-panel glass-panel">
-                <div class="panel-header">
-                    <h2>Supervisor Chat</h2>
-                    <div class="status-indicator live"></div>
-                </div>
-                <div class="chat-history" id="chatHistory">
-                    <div class="message system-message">
-                        <div class="avatar system-avatar">⚡</div>
-                        <div class="msg-content">
-                            <p>Agent sandbox initialized. System is ready.</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="chat-input-container">
-                    <textarea id="taskInput" placeholder="Describe the task... (e.g. 'write a ping script using curl')"></textarea>
-                    <button id="sendTaskBtn" class="icon-btn">
-                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                    </button>
+            <ul class="facts" id="facts">
+                <li><span>Tools</span><b>run_bash · read_file · write_file</b></li>
+                <li><span>Commands</span><b id="factSandbox">checking…</b></li>
+                <li><span>Network</span><b id="factNetwork">checking…</b></li>
+            </ul>
+        </div>
+    </main>
+
+    <!-- Workspace -->
+    <main id="workspaceScreen" class="workspace hidden">
+        <header class="ws-top">
+            <div class="brand small">
+                <svg viewBox="0 0 32 32" aria-hidden="true">
+                    <rect width="32" height="32" rx="8" fill="var(--text)"/>
+                    <path d="M10 11h12l-12 10h12" fill="none" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h1>ZenCode</h1>
+            </div>
+            <span class="chip" id="modelChip" title="Model">model</span>
+            <span class="chip" id="sandboxChip" title="Command sandbox">sandbox</span>
+            <span class="spacer"></span>
+            <button id="shipUpdateBtn" class="btn primary" type="button" title="Pack the sandbox into a tarball in the outbox. The supervisor quarantines it.">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
+                Ship Update
+            </button>
+        </header>
+
+        <section class="pane chat-pane card">
+            <div class="card-head"><h2>Chat</h2><span class="spacer"></span><span class="faint" id="turnHint">Enter to send · Shift+Enter for a new line</span></div>
+            <div class="chat-history" id="chatHistory">
+                <div class="message system-message">
+                    <div class="avatar">S</div>
+                    <div class="msg-content"><p>Sandbox ready. Describe a task and ZenCode will use its tools inside the sandbox.</p></div>
                 </div>
             </div>
+            <div class="composer">
+                <textarea id="taskInput" rows="2" placeholder="Describe the task, e.g. write a script that prints the first 10 primes"></textarea>
+                <button id="sendTaskBtn" class="btn primary" type="button">Send</button>
+            </div>
+        </section>
 
-            <!-- Right Panel: Sandbox Visualization -->
-            <div class="side-panel data-panel glass-panel">
-                <div class="panel-header">
-                    <h2>Sandbox State</h2>
-                    <div class="toggle-group">
-                        <button class="toggle-btn active" data-view="terminal">Terminal</button>
-                        <button class="toggle-btn" data-view="files">Files</button>
-                    </div>
-                    <button id="shipUpdateBtn" class="primary-btn" style="padding: 0.5rem 1rem; font-size: 0.8rem;">📦 Ship Update</button>
-                </div>
-                <div class="view-content active" id="terminalView">
-                    <div class="mock-terminal">
-                        <div class="term-header">
-                            <span class="dot red"></span>
-                            <span class="dot yellow"></span>
-                            <span class="dot green"></span>
-                            <div class="term-title">sandbox@zen</div>
-                        </div>
-                        <div class="term-body" id="termOutput"></div>
-                    </div>
-                </div>
-                <div class="view-content" id="filesView" style="display: none;">
-                    <div class="file-tree" id="fileTree">
-                        <!-- File list injected here -->
-                    </div>
+        <section class="pane data-pane card">
+            <div class="card-head">
+                <h2>Sandbox</h2>
+                <span class="spacer"></span>
+                <div class="segmented" role="tablist">
+                    <button class="toggle-btn active" data-view="terminal" role="tab">Terminal</button>
+                    <button class="toggle-btn" data-view="files" role="tab">Files</button>
                 </div>
             </div>
-        </main>
-    </div>
-    
+            <div class="view-content" id="terminalView">
+                <div class="term-body" id="termOutput"></div>
+            </div>
+            <div class="view-content hidden" id="filesView">
+                <div class="file-tree" id="fileTree"></div>
+            </div>
+        </section>
+    </main>
+
     <script src="app.js"></script>
 </body>
 </html>

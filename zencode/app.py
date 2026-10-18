@@ -296,6 +296,9 @@ async def chat(req: Request):
     data = await req.json()
     user_msg = data.get("message")
 
+    if not sandbox_state["base_url"] or not sandbox_state["model_id"]:
+        return {"response": "Not initialized yet: choose an inference endpoint and a model first."}
+
     if not sandbox_state["messages"]:
         sandbox_state["messages"].append({"role": "system", "content": SYSTEM_PROMPT})
 
@@ -429,3 +432,45 @@ async def get_logs(offset: int = Query(0, ge=0)):
         "logs": sandbox_state["logs"][offset:],
         "next_offset": len(sandbox_state["logs"])
     }
+
+
+@app.get("/api/status")
+async def get_status():
+    """Read-only facts the UI shows: model, sandbox mode and network policy."""
+    runtime = container_runtime()
+    return {
+        "model_id": sandbox_state["model_id"],
+        "base_url": sandbox_state["base_url"],
+        "sandbox_mode": SANDBOX_MODE,
+        "container_runtime": os.path.basename(runtime) if runtime else None,
+        "network": SANDBOX_NETWORK,
+        "image": SANDBOX_IMAGE,
+    }
+
+
+LISTING_EXCLUDED_DIRS = {".git", "venv", ".venv", "node_modules", "__pycache__"}
+MAX_LISTED_FILES = 500
+
+
+@app.get("/api/files")
+async def list_files():
+    """List files inside the sandbox (relative paths and sizes), for the Files tab.
+
+    Read-only, bounded, and never follows symlinks out of the sandbox.
+    """
+    root = os.path.realpath(ensure_sandbox_dir())
+    files = []
+    truncated = False
+    for current, dirs, filenames in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d not in LISTING_EXCLUDED_DIRS)
+        for filename in sorted(filenames):
+            path = os.path.join(current, filename)
+            if os.path.islink(path):
+                continue
+            if len(files) >= MAX_LISTED_FILES:
+                truncated = True
+                break
+            files.append({"path": os.path.relpath(path, root), "bytes": os.path.getsize(path)})
+        if truncated:
+            break
+    return {"files": files, "truncated": truncated}

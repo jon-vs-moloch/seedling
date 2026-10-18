@@ -8,6 +8,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentStatus = 'paused';
 
+    function renderStatus(status) {
+        const running = status === 'running';
+        toggleBtn.textContent = running ? 'Pause Operator' : 'Start Operator Loop';
+        toggleBtn.className = running ? 'btn pause' : 'btn primary play';
+        statusBadge.className = running ? 'chip ok' : 'chip';
+        statusBadge.innerHTML = `<span class="dot"></span>${running ? 'Running' : 'Paused'}`;
+    }
+
     async function pushControl(status, goal) {
         await fetch('/api/control', {
             method: 'POST',
@@ -22,17 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         await pushControl(newStatus, goal);
 
-        if (newStatus === 'running') {
-            toggleBtn.textContent = 'Pause Operator';
-            toggleBtn.className = 'btn pause';
-            statusBadge.textContent = 'RUNNING';
-            statusBadge.className = 'status-badge running';
-        } else {
-            toggleBtn.textContent = 'Start Operator Loop';
-            toggleBtn.className = 'btn play';
-            statusBadge.textContent = 'PAUSED';
-            statusBadge.className = 'status-badge';
-        }
+        renderStatus(newStatus);
         currentStatus = newStatus;
     });
 
@@ -53,17 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Sync UI state if changed externally
             if (state.status !== currentStatus) {
                 currentStatus = state.status;
-                if (currentStatus === 'running') {
-                    toggleBtn.textContent = 'Pause Operator';
-                    toggleBtn.className = 'btn pause';
-                    statusBadge.textContent = 'RUNNING';
-                    statusBadge.className = 'status-badge running';
-                } else {
-                    toggleBtn.textContent = 'Start Operator Loop';
-                    toggleBtn.className = 'btn play';
-                    statusBadge.textContent = 'PAUSED';
-                    statusBadge.className = 'status-badge';
-                }
+                renderStatus(currentStatus);
             }
 
             // Sync goal text if not actively focused
@@ -75,7 +63,8 @@ document.addEventListener('DOMContentLoaded', () => {
             liveView.src = `/api/image?t=${Date.now()}`;
 
             // Sync telemetry line
-            telemetryOut.textContent = `> ${state.recent_action}`;
+            telemetryOut.textContent = state.recent_action;
+            if (state.endpoint_url) document.getElementById('targetUrl').textContent = state.endpoint_url.replace(/^https?:\/\//, '');
 
         } catch (e) {
             console.error('Failed to fetch state', e);

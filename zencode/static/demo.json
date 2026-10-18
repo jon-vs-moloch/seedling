@@ -1,0 +1,101 @@
+{
+  "_comment": "Demo data for ZenCode's ?demo mode. Illustrative only: nothing here was produced by a model run.",
+  "status": {
+    "model_id": "local-model",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "sandbox_mode": "container",
+    "container_runtime": "docker",
+    "network": "none",
+    "image": "python:3.12-slim"
+  },
+  "messages": [
+    {
+      "role": "system",
+      "text": "Sandbox ready. Describe a task and ZenCode will use its tools inside the sandbox."
+    },
+    {
+      "role": "user",
+      "text": "Write primes.py that prints the first N primes, and a unittest for it."
+    },
+    {
+      "role": "agent",
+      "text": "Done. `primes.py` has a `first_primes(n)` function and a small CLI, and `test_primes.py` covers it. The tests pass:\n```\n$ python -m unittest -q\n..\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n```\nRun it with `python primes.py 10`."
+    },
+    {
+      "role": "user",
+      "text": "Make N default to 10 when no argument is given."
+    },
+    {
+      "role": "agent",
+      "text": "Updated `primes.py`: N now defaults to 10. `python primes.py` prints `2 3 5 7 11 13 17 19 23 29`, and both tests still pass."
+    }
+  ],
+  "logs": [
+    {
+      "type": "log-cmd",
+      "msg": "Sandbox initialized at .seedling_runtime/zen_stack_k2v9q1/zencode_b_workspace"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "Sandbox mode: container; network: none; image: python:3.12-slim"
+    },
+    {
+      "type": "log-out",
+      "msg": "Using model local-model via http://127.0.0.1:1234/v1"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "write_file: primes.py (604 bytes)"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "write_file: test_primes.py (412 bytes)"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "$ python -m unittest -q 2>&1"
+    },
+    {
+      "type": "log-out",
+      "msg": "..\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "$ python primes.py 10"
+    },
+    {
+      "type": "log-out",
+      "msg": "2 3 5 7 11 13 17 19 23 29\n"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "read_file: primes.py"
+    },
+    {
+      "type": "log-out",
+      "msg": "  (604 bytes)"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "write_file: primes.py (633 bytes)"
+    },
+    {
+      "type": "log-cmd",
+      "msg": "$ python primes.py && python -m unittest -q 2>&1"
+    },
+    {
+      "type": "log-out",
+      "msg": "2 3 5 7 11 13 17 19 23 29\n..\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n"
+    }
+  ],
+  "files": [
+    {
+      "path": "primes.py",
+      "bytes": 633
+    },
+    {
+      "path": "test_primes.py",
+      "bytes": 412
+    }
+  ]
+}

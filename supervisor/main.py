@@ -57,6 +57,7 @@ class ManagedProcess:
         self.env_extras = env_extras or {}
         self.sandbox_dir = sandbox_dir  # For ZenCode instances: where their workspace lives
         self.process = None
+        self.log_file = None      # child stdout/stderr go here (see start_process)
         self.status = "stopped"
         self.started_at = None
         self.restart_count = 0
@@ -217,12 +218,16 @@ class Supervisor:
 
         self.log(f"Starting {name} on :{mp.port}...", source=name)
 
+        # Send child output to a file in the stack workspace. An unread PIPE
+        # fills after ~64 KB of access logs and then blocks the child.
+        log_path = os.path.join(self.base_dir or tempfile.gettempdir(), f"{name}.log")
+        mp.log_file = open(log_path, "a", buffering=1)
         mp.process = subprocess.Popen(
             mp.cmd,
             cwd=mp.cwd,
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=mp.log_file,
+            stderr=subprocess.STDOUT,
             preexec_fn=os.setsid,
             text=True,
         )
@@ -245,6 +250,9 @@ class Supervisor:
                 pass
         mp.status = "stopped"
         mp.process = None
+        if mp.log_file:
+            mp.log_file.close()
+            mp.log_file = None
 
     def start_all(self):
         """Start all processes in dependency order."""
@@ -272,6 +280,9 @@ class Supervisor:
                 mp.status = f"crashed (exit {mp.process.returncode})"
                 self.log(f"{name} died with exit code {mp.process.returncode}", source=name, level="error")
                 mp.process = None
+                if mp.log_file:
+                    mp.log_file.close()
+                    mp.log_file = None
             results[name] = mp.status
         return results
 

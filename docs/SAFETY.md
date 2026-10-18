@@ -1,6 +1,6 @@
 # Seedling Safety Notes
 
-This document tracks the minimum safety bar for presenting Seedling as an Owl & Kestrel experiment download.
+This document tracks the minimum safety bar for running Seedling on your own machine.
 
 ## 1. Real Sandboxing
 
@@ -33,6 +33,12 @@ ZenCode ships update artifacts as bounded tarballs. The supervisor copies each d
 ## 7. Reset Flow
 
 The supervisor exposes `/api/reset` and a dashboard Reset button. Reset stops managed processes, removes the runtime workspace, recreates fresh sandboxes, and restarts the stack.
+
+## Known Gaps
+
+- Applying an artifact copies it over the checked-out `zencode/` or `operator/` source in place. There is no backup and no automatic rollback; use git to undo.
+- Artifacts are validated for shape (size, members, paths), not behaviour. Nothing tests an artifact before a human applies it.
+- ZenCode sandboxes start empty. The target source is not copied in, so an improvement has to be rebuilt inside the sandbox.
 
 ## Remaining Release Notes
 

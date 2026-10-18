@@ -29,9 +29,7 @@ operator_telemetry.log
 *.tar.gz
 *.gz
 .seedling_runtime/
-
-# Supervisor stack workspace (ephemeral)
-/tmp/zen_stack_*/
+.venv-test/
 
 # Screenshots (runtime, not source)
 operator/static/current_view.png

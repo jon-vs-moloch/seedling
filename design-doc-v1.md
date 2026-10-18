@@ -36,10 +36,10 @@ The system operates across four process types orchestrated by a central Supervis
 ```
 Supervisor (:7000)
 ├── Operator A (:9000) ──Playwright──→ ZenCode-A (:8000)
-│   Goal: improve operator/          Sandbox: /tmp/zen_stack_*/zencode_a_workspace
+│   Goal: improve operator/          Sandbox: .seedling_runtime/zen_stack_*/zencode_a_workspace
 │
 └── Operator B (:9001) ──Playwright──→ ZenCode-B (:8001)
-    Goal: improve zencode/           Sandbox: /tmp/zen_stack_*/zencode_b_workspace
+    Goal: improve zencode/           Sandbox: .seedling_runtime/zen_stack_*/zencode_b_workspace
 ```
 
 ### Convergence Property

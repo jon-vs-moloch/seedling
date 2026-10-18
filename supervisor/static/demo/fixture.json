@@ -1,5 +1,5 @@
 {
-  "_comment": "Demo data for the supervisor dashboard's ?demo mode. Illustrative only: not captured from a live run. Operator screenshots in this folder are renders of the real ZenCode UI.",
+  "_comment": "Demo data for the supervisor dashboard's ?demo mode. Illustrative only: not captured from a live run. operator_a.png and operator_b.png are renders of ZenCode's own demo mode.",
   "topology": {
     "processes": {
       "zencode_a": {

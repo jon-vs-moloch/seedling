@@ -7,6 +7,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const telemetryOut = document.getElementById('telemetryOut');
 
     let currentStatus = 'paused';
+    const noShot = document.getElementById('noShot');
+    // The screenshot endpoint returns an empty body until the operator's browser has a frame.
+    liveView.addEventListener('load', () => { liveView.hidden = false; noShot.hidden = true; });
+    liveView.addEventListener('error', () => { liveView.hidden = true; noShot.hidden = false; });
 
     function renderStatus(status) {
         const running = status === 'running';

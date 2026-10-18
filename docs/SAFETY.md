@@ -20,7 +20,7 @@ Runtime sandboxes default to `.seedling_runtime/` under the project so Docker De
 
 ## 4. Network Policy
 
-Command containers default to `--network none`. The server processes still bind to localhost so the UI can function, but generated shell commands do not receive outbound network access by default. Each server also refuses requests whose `Host` is not a loopback name on its own port, and state-changing requests from other origins, so web pages in the operator's browser cannot drive the local APIs.
+Command containers default to `--network none`. The server processes still bind to localhost so the UI can function, but generated shell commands do not receive outbound network access by default. Each server also refuses requests whose `Host` is not a loopback name on its own port, and state-changing requests from other origins, so web pages in the operator's browser cannot drive the local APIs. ZenCode logs a failed inference request without the endpoint's URL, host or credentials.
 
 ## 5. Resource Caps
 

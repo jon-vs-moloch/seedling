@@ -6,7 +6,6 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
-from playwright.async_api import async_playwright
 
 # ---------------------------------------------------------------------------
 # Configuration — all tunable via environment variables
@@ -174,6 +173,10 @@ Output ONLY the raw JSON object, no markdown blocks."""
 # ---------------------------------------------------------------------------
 
 async def operator_loop():
+    # Imported here, not at module level, so the module (and its request guard)
+    # can be imported and tested without Playwright installed.
+    from playwright.async_api import async_playwright
+
     print(f"[{OPERATOR_ROLE}] Booting — targeting {OPERATOR_TARGET}")
     _write_telemetry(f"--- NEW SESSION: {OPERATOR_ROLE} ---")
 

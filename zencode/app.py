@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import httpx
 import tempfile
@@ -137,6 +138,28 @@ def redact_userinfo(url):
     if "@" not in parts.netloc:
         return url
     return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+
+def endpoint_error_text(error, url):
+    """Describe a failed inference request without the endpoint URL or host.
+
+    httpx messages can quote the request URL (invalid-URL and redirect errors,
+    for example), and that URL can carry credentials in userinfo or the query.
+    The text is logged and served by /api/logs, so every URL and every part of
+    the endpoint's address is replaced with <endpoint>.
+    """
+    text = re.sub(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>]*", "<endpoint>", str(error))
+    secrets = set()
+    if url:
+        secrets.add(url)
+        try:
+            parts = urlsplit(url)
+            secrets.update({parts.netloc, parts.netloc.rpartition("@")[2], parts.hostname, parts.username, parts.password})
+        except ValueError:
+            pass
+    for secret in sorted((s for s in secrets if s), key=len, reverse=True):
+        text = re.sub(re.escape(secret), "<endpoint>", text, flags=re.IGNORECASE)
+    name = type(error).__name__
+    return f"{name}: {text}" if text.strip() else name
 
 # ---------------------------------------------------------------------------
 # Native Tool Definitions (OpenAI function-calling format)
@@ -390,7 +413,7 @@ async def chat(req: Request):
             try:
                 resp = await client.post(api_url, json=payload, headers=headers, timeout=120)
             except Exception as e:
-                final_reply = f"Error: Could not reach inference endpoint — {e}"
+                final_reply = f"Error: Could not reach inference endpoint — {endpoint_error_text(e, api_url)}"
                 log_event(final_reply, "log-err")
                 break
 

@@ -95,6 +95,29 @@ class ZenCodeApiTests(unittest.TestCase):
         finally:
             self.zen.sandbox_state["base_url"] = previous
 
+    def test_chat_errors_hide_the_endpoint_url_and_host(self):
+        import httpx
+
+        state = self.zen.sandbox_state
+        previous = (state["base_url"], state["model_id"], list(state["messages"]))
+        state["base_url"] = "http://user:hunter2@inference.internal.example:4321"
+        state["model_id"] = "m"
+        error = httpx.ConnectError(
+            "Failed to reach http://user:hunter2@inference.internal.example:4321/v1/chat/completions "
+            "(host INFERENCE.internal.example refused; redirected to https://redirect.example/x?key=s3cret)"
+        )
+        try:
+            logs_before = len(state["logs"])
+            with mock.patch.object(self.zen.httpx.AsyncClient, "post", side_effect=error):
+                reply = self.client.post("/api/chat", json={"message": "hi"}).json()
+            logged = json.dumps(state["logs"][logs_before:])
+            for text in (reply["response"], logged):
+                self.assertIn("ConnectError", text)
+                for secret in ("hunter2", "inference.internal.example", "4321", "user:", "redirect.example", "s3cret"):
+                    self.assertNotIn(secret, text.lower())
+        finally:
+            state["base_url"], state["model_id"], state["messages"][:] = previous
+
     def test_files_does_not_create_a_missing_sandbox(self):
         missing = Path(self.tmp.name) / "not-created"
         previous = self.zen.sandbox_state["sandbox_dir"]
@@ -129,6 +152,51 @@ class ZenCodeApiTests(unittest.TestCase):
         own = self.client.post("/api/chat", json={"message": "x"}, headers={"Origin": "http://127.0.0.1:8000"})
         self.assertEqual(own.status_code, 200)
         self.assertEqual(self.client.post("/api/chat", json={"message": "x"}).status_code, 200)
+
+
+class OperatorGuardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+
+        cls.tmp = tempfile.TemporaryDirectory()
+        # Playwright is not installed in the test venv; block it anyway so the
+        # test proves operator/main.py imports without it. Only these two
+        # sys.modules entries are touched (patch.dict would also drop every
+        # module first imported during the load).
+        blocked = ("playwright", "playwright.async_api")
+        saved = {name: sys.modules[name] for name in blocked if name in sys.modules}
+        sys.modules.update(dict.fromkeys(blocked))
+        try:
+            with mock.patch.dict(os.environ, {"OPERATOR_WORK_DIR": cls.tmp.name}):
+                cls.op_module = load_module("operator_main_guard", ROOT / "operator" / "main.py", ROOT / "operator")
+        finally:
+            for name in blocked:
+                sys.modules.pop(name, None)
+            sys.modules.update(saved)
+        # No `with`: the startup hook (which launches Playwright and the loop) does not run.
+        cls.client = TestClient(cls.op_module.app, base_url="http://127.0.0.1:9000")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_cross_site_posts_are_refused(self):
+        # An unknown route, so a guard regression gets a harmless 404.
+        for headers in ({"Origin": "https://evil.example"}, {"Origin": "null"}, {"Origin": "http://127.0.0.1:9001"}, {"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"}):
+            response = self.client.post("/api/nope", headers=headers)
+            self.assertEqual(response.status_code, 403, headers)
+
+    def test_rebound_host_is_refused(self):
+        self.assertEqual(self.client.get("/api/state", headers={"Host": "rebind.attacker.example:9000"}).status_code, 403)
+        self.assertEqual(self.client.get("/api/state", headers={"Host": "127.0.0.1:9001"}).status_code, 403)
+        self.assertEqual(self.client.get("/api/state").status_code, 200)
+
+    def test_own_page_and_scripts_pass_the_guard(self):
+        own = self.client.post("/api/nope", headers={"Origin": "http://127.0.0.1:9000"})
+        self.assertEqual(own.status_code, 404)
+        self.assertEqual(self.client.post("/api/nope").status_code, 404)
+        self.assertEqual(self.client.post("/api/control", json={}).json(), {"ok": True})
 
 
 class SupervisorQuarantineTests(unittest.TestCase):

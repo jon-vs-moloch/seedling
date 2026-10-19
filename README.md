@@ -109,7 +109,7 @@ Every server binds to `127.0.0.1` and refuses requests whose `Host` is not `127.
 What has not been shown yet: a cycle where the vision operator drives ZenCode itself. The vision-operator loop is observational; watch it, don't depend on it. Also:
 
 - applying an artifact copies it over `zencode/` or `operator/` in place. There is no backup and no automatic rollback (use git);
-- nothing tests an artifact before a human applies it;
+- only Lane A's action parser is tested before a human applies an artifact: the supervisor scores it in a container against the current parser and shows both numbers in the Quarantine card. Nothing else in an artifact is tested, and no score gates Apply;
 - ZenCode B's sandbox starts empty, so a ZenCode improvement has to be rebuilt inside the sandbox. ZenCode A's starts with the operator's docs and its action parser ([`operator/README.md`](operator/README.md)), the one file it is asked to improve;
 - ports are fixed.
 

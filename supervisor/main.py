@@ -634,7 +634,12 @@ class Supervisor:
                 member_path = os.path.abspath(os.path.join(extract_root, member.name))
                 if os.path.commonpath([extract_root, member_path]) != extract_root:
                     raise ValueError(f"Archive member escapes extraction directory: {member.name}")
-            archive.extractall(extract_root)
+            # The checks above are the boundary; the "data" filter (Python 3.12+)
+            # is a second one, and drops setuid bits and the like.
+            if hasattr(tarfile, "data_filter"):
+                archive.extractall(extract_root, filter="data")
+            else:
+                archive.extractall(extract_root)
 
     def _apply_artifact_contents(self, artifact, target_src):
         """Apply either a directory artifact or supported archive into target_src."""

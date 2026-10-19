@@ -880,6 +880,13 @@ class CandidateScoringTests(unittest.TestCase):
         scored = [u for u in fixture["updates"] if u.get("score", {}).get("status") == "done"]
         self.assertTrue(scored)
 
+    def test_dashboard_attributes_are_quote_escaped(self):
+        # Artifact file names are model-chosen and land in title="..." attributes.
+        app_js = (ROOT / "supervisor" / "static" / "app.js").read_text()
+        self.assertIn(".replace(/\"/g, '&quot;').replace(/'/g, '&#39;')", app_js)
+        for value in re.findall(r'="\$\{([^}]*)\}', app_js):
+            self.assertTrue(value.startswith("escapeHtml("), value)
+
 
 class UiAssetTests(unittest.TestCase):
     UI_FILES = [

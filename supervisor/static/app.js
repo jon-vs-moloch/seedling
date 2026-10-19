@@ -74,10 +74,11 @@ document.addEventListener('DOMContentLoaded', () => {
         toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
     }
 
+    // Also escapes quotes: artifact file names are model-chosen and end up in attributes.
     function escapeHtml(value) {
         const div = document.createElement('div');
         div.textContent = String(value ?? '');
-        return div.innerHTML;
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function formatTime(iso) {

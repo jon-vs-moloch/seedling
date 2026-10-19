@@ -246,6 +246,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await r.json();
             if (r.ok) {
                 logTerm(`Shipped ${data.artifact} (${formatBytes(data.bytes)}) to the outbox. The supervisor will quarantine it.`, 'log-cmd');
+                // What the archive actually holds, whatever the agent said it left behind.
+                const files = data.files || [];
+                logTerm(`It holds ${files.length} ${files.length === 1 ? 'file' : 'files'}: ${files.join(', ') || '(none)'}`, 'log-cmd');
+                const excluded = data.excluded || [];
+                if (excluded.length) logTerm(`Left out (never shipped): ${excluded.map((e) => e.path).join(', ')}`, 'log-cmd');
                 shipUpdateBtn.textContent = 'Shipped';
             } else {
                 logTerm(`Ship failed: ${data.error}`, 'log-err');

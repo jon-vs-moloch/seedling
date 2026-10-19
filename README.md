@@ -37,7 +37,9 @@ Operator A drives ZenCode A to improve the *operator* code. Operator B drives Ze
   - shell commands run in one-shot Docker or Podman containers with no network, a read-only root, all capabilities dropped, and CPU, memory and PID caps. With no container runtime, commands are refused (it fails closed);
   - file tools reject absolute paths and any traversal outside the sandbox;
   - child processes get an allowlisted environment, not your shell's secrets;
-  - update tarballs are checked for size, entry count, entry types and paths, hashed, and parked in quarantine. Nothing auto-applies.
+  - before the first command, ZenCode checks that the container really sees the sandbox (Colima and Docker Desktop silently mount unshared paths as empty) and refuses to run anything if it doesn't;
+  - scratch, temp and cache files never ship; the supervisor refuses an artifact that holds them and lists any file new to the target codebase;
+  - update tarballs are checked for size, entry count, entry types and paths, hashed, and parked in quarantine. A Lane A artifact's parser is scored in a container against the current one, and the dashboard shows both numbers. Nothing auto-applies.
 
 ## The interface
 
@@ -89,7 +91,8 @@ Optional settings (environment variables for `run.sh`):
 | `SEEDLING_SANDBOX_NETWORK` | `none` | Container network mode |
 | `SEEDLING_SANDBOX_IMAGE` | `python:3.12-slim` | Image used for commands |
 | `SEEDLING_SANDBOX_CPUS` / `_MEMORY` / `_PIDS` | `1` / `512m` / `128` | Resource caps |
-| `SEEDLING_RUNTIME_DIR` | `.seedling_runtime/` | Where sandboxes live. Must be mountable by your container runtime. |
+| `SEEDLING_SANDBOX_TIMEOUT` | `30` | Seconds per command |
+| `SEEDLING_RUNTIME_DIR` | `.seedling_runtime/` | Where sandboxes live. Must be mountable by your container runtime (Colima: under your home directory). ZenCode checks this and refuses to run commands if it isn't. |
 
 Every server binds to `127.0.0.1` and refuses requests whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` on its port (DNS rebinding), and POSTs from any other web page (cross-site requests). There are no accounts or passwords, so other programs running as you can still call the APIs. The dashboard's **Reset** button stops everything, deletes the runtime sandboxes and quarantine, and starts fresh. While the stack runs, each process writes its output to `<runtime dir>/zen_stack_*/<name>.log`; the stack directory is removed on shutdown and reset.
 

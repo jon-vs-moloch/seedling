@@ -7,6 +7,8 @@ import subprocess
 import shutil
 import tarfile
 import hashlib
+import fnmatch
+import secrets
 from urllib.parse import urlsplit, urlunsplit
 from fastapi import FastAPI, Request, Query
 from fastapi.staticfiles import StaticFiles
@@ -85,8 +87,28 @@ SANDBOX_TIMEOUT = int(os.environ.get("SEEDLING_SANDBOX_TIMEOUT", "30"))
 MAX_READ_BYTES = int(os.environ.get("SEEDLING_MAX_READ_BYTES", str(1024 * 1024)))
 MAX_WRITE_BYTES = int(os.environ.get("SEEDLING_MAX_WRITE_BYTES", str(5 * 1024 * 1024)))
 MAX_ARTIFACT_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_BYTES", str(25 * 1024 * 1024)))
-EXCLUDED_ARTIFACT_DIRS = {".git", "venv", ".venv", "node_modules", "__pycache__", "outbox"}
+# What Ship Update leaves out of the artifact. Apply copies the artifact over
+# the target codebase (operator/ or zencode/), so the agent's working state
+# must not ship: keep scratch work under scratch/ (the system prompt says so).
+# Directories are matched by name at any depth, files by name pattern. The
+# supervisor keeps the same lists (supervisor/main.py) and refuses an artifact
+# that still holds one of these; a test keeps the two copies equal.
+ARTIFACT_EXCLUDED_DIRS = {
+    ".git", "venv", ".venv", "node_modules", "__pycache__", "outbox",
+    "scratch", "tmp", ".pytest_cache", ".mypy_cache",
+}
+ARTIFACT_EXCLUDED_FILES = ("*.tmp", "*.pyc", "*.pyo", "*.log", "*.swp", "*~", ".DS_Store", ".seedling-*")
 DEFAULT_RUNTIME_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".seedling_runtime", "zencode"))
+
+def artifact_exclusion(rel_path):
+    """Why rel_path (relative to the sandbox) never ships, or None if it ships."""
+    parts = rel_path.replace(os.sep, "/").split("/")
+    for part in parts[:-1]:
+        if part in ARTIFACT_EXCLUDED_DIRS:
+            return f"{part}/ is not shipped"
+    if any(fnmatch.fnmatchcase(parts[-1], pattern) for pattern in ARTIFACT_EXCLUDED_FILES):
+        return "scratch, temp or cache file"
+    return None
 
 def log_event(msg, evt_type="log-out"):
     sandbox_state["logs"].append({"msg": msg, "type": evt_type})
@@ -126,6 +148,86 @@ def container_runtime():
     if SANDBOX_RUNTIME:
         return SANDBOX_RUNTIME
     return shutil.which("docker") or shutil.which("podman")
+
+def container_command(runtime, sandbox_dir, command):
+    """The one-shot container that runs a command with the sandbox at /workspace."""
+    return [
+        runtime, "run", "--rm",
+        "--network", SANDBOX_NETWORK,
+        "--cpus", SANDBOX_CPUS,
+        "--memory", SANDBOX_MEMORY,
+        "--pids-limit", SANDBOX_PIDS,
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--read-only",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
+        "-v", f"{sandbox_dir}:/workspace:rw",
+        "-w", "/workspace",
+        SANDBOX_IMAGE,
+        "/bin/sh", "-lc", command,
+    ]
+
+# Sandboxes whose bind mount has been seen to work, in both directions.
+verified_mounts = set()
+
+def verify_container_mount(runtime, sandbox_dir):
+    """Check that the container sees the sandbox, and that its writes reach the host.
+
+    A container runtime in a VM (Colima, Docker Desktop) mounts only the host
+    paths it shares; any other path is mounted as an empty directory, with no
+    error, and writes to it are lost. So once per sandbox, a marker file with
+    a random value is written on the host, the container copies it to a reply
+    file, and the host reads the reply back. Returns None if that worked, or
+    an error to show instead of running anything. Both files are removed.
+    """
+    key = os.path.realpath(sandbox_dir)
+    if key in verified_mounts:
+        return None
+    nonce = secrets.token_hex(16)
+    probe = f".seedling-mount-probe-{nonce}"
+    reply = f".seedling-mount-reply-{nonce}"
+    probe_path = os.path.join(sandbox_dir, probe)
+    reply_path = os.path.join(sandbox_dir, reply)
+    detail = ""
+    try:
+        with open(probe_path, "w") as f:
+            f.write(nonce)
+        result = subprocess.run(
+            container_command(runtime, sandbox_dir, f"cat {probe} > {reply}"),
+            cwd=sandbox_dir,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")},
+            capture_output=True,
+            text=True,
+            timeout=SANDBOX_TIMEOUT,
+        )
+        detail = ((result.stderr or "").strip().splitlines() or [""])[-1]
+        with open(reply_path) as f:
+            ok = f.read() == nonce
+    except FileNotFoundError:
+        ok = False  # the container's copy never reached the host
+    except (OSError, subprocess.SubprocessError) as e:
+        ok = False
+        detail = detail or type(e).__name__
+    finally:
+        for path in (probe_path, reply_path):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+    if ok:
+        verified_mounts.add(key)
+        return None
+    msg = (
+        f"Container mount check failed: the container cannot see the sandbox {sandbox_dir} "
+        "(a marker file written on the host was not readable in the container, or its "
+        "copy did not come back). No command was run. Docker Desktop and Colima share "
+        "only some host paths (Colima: your home directory by default): set "
+        "SEEDLING_RUNTIME_DIR to a directory under a shared path, or share this path "
+        "with the container VM, then restart Seedling."
+    )
+    if detail:
+        msg += f" Runtime said: {detail}"
+    return msg
 
 def redact_userinfo(url):
     """Drop any user:password@ from a URL before it is shown or logged."""
@@ -244,23 +346,14 @@ def run_bash(command: str):
                 log_event(msg, "log-err")
                 return {"error": msg}
 
-            cmd = [
-                runtime, "run", "--rm",
-                "--network", SANDBOX_NETWORK,
-                "--cpus", SANDBOX_CPUS,
-                "--memory", SANDBOX_MEMORY,
-                "--pids-limit", SANDBOX_PIDS,
-                "--cap-drop", "ALL",
-                "--security-opt", "no-new-privileges",
-                "--read-only",
-                "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
-                "-v", f"{sandbox_dir}:/workspace:rw",
-                "-w", "/workspace",
-                SANDBOX_IMAGE,
-                "/bin/sh", "-lc", command,
-            ]
+            # Fail closed: never run against a workspace the container can't see.
+            mount_error = verify_container_mount(runtime, sandbox_dir)
+            if mount_error:
+                log_event(mount_error, "log-err")
+                return {"error": mount_error}
+
             result = subprocess.run(
-                cmd,
+                container_command(runtime, sandbox_dir, command),
                 cwd=sandbox_dir,
                 env={"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")},
                 capture_output=True,
@@ -348,11 +441,20 @@ async def init_agent(req: Request):
     sandbox_state["base_url"] = data.get("base_url")
     sandbox_state["model_id"] = data.get("model_id")
 
-    ensure_sandbox_dir()
+    sandbox_dir = ensure_sandbox_dir()
 
     log_event(f"Sandbox initialized at {sandbox_state['sandbox_dir']}", "log-cmd")
     log_event(f"Sandbox mode: {SANDBOX_MODE}; network: {SANDBOX_NETWORK}; image: {SANDBOX_IMAGE}", "log-cmd")
     log_event(f"Using model {sandbox_state['model_id']} via {redact_userinfo(sandbox_state['base_url'])}")
+    runtime = container_runtime() if SANDBOX_MODE == "container" else None
+    if runtime:
+        # Check the mount now, so a broken one shows before the agent starts.
+        # run_bash checks again (once) and refuses to run until it passes.
+        mount_error = verify_container_mount(runtime, sandbox_dir)
+        if mount_error:
+            log_event(mount_error, "log-err")
+            return JSONResponse(status_code=409, content={"status": "error", "error": mount_error})
+        log_event("Container mount check passed: the container sees the sandbox.", "log-cmd")
     return {"status": "success"}
 
 
@@ -364,6 +466,7 @@ SANDBOX RULES:
 - Your working directory is your entire world. Do not attempt to access paths outside it.
 - Do not attempt to access the network unless explicitly asked to by the user.
 - Do not attempt to modify system-level configurations or escape the sandbox in any way.
+- Put scratch work (test scripts, example inputs, notes, copies of files) under scratch/. When the user ships an update, every file outside scratch/ is shipped and may be applied over the real codebase; scratch/ is never shipped.
 
 You have three tools:
 1. run_bash — execute shell commands in your sandbox
@@ -475,19 +578,32 @@ async def ship_update():
     fd, temp_archive = tempfile.mkstemp(prefix="seedling_update_", suffix=".tar.gz")
     os.close(fd)
 
+    shipped, excluded = [], []
     try:
         with tarfile.open(temp_archive, "w:gz") as archive:
             for root, dirs, files in os.walk(sandbox_dir):
-                dirs[:] = [d for d in dirs if d not in EXCLUDED_ARTIFACT_DIRS]
                 rel_root = os.path.relpath(root, sandbox_dir)
                 if rel_root == ".":
                     rel_root = ""
-                for filename in files:
+                kept_dirs = []
+                for d in sorted(dirs):
+                    if d in ARTIFACT_EXCLUDED_DIRS:
+                        if d != "outbox" or rel_root:
+                            excluded.append({"path": os.path.join(rel_root, d) + "/", "reason": f"{d}/ is not shipped"})
+                    else:
+                        kept_dirs.append(d)
+                dirs[:] = kept_dirs
+                for filename in sorted(files):
                     path = os.path.join(root, filename)
                     rel_path = os.path.normpath(os.path.join(rel_root, filename))
                     if rel_path.startswith(".."):
                         continue
+                    reason = artifact_exclusion(rel_path)
+                    if reason:
+                        excluded.append({"path": rel_path, "reason": reason})
+                        continue
                     archive.add(path, arcname=rel_path)
+                    shipped.append(rel_path)
 
         size = os.path.getsize(temp_archive)
         if size > MAX_ARTIFACT_BYTES:
@@ -500,12 +616,21 @@ async def ship_update():
 
         final_path = os.path.join(outbox_dir, f"zencode_update_{digest.hexdigest()[:12]}.tar.gz")
         shutil.move(temp_archive, final_path)
-        log_event(f"Shipped quarantinable artifact to outbox: {os.path.basename(final_path)}", "log-cmd")
+        # What actually shipped, from the archive itself, not from the agent's account.
+        log_event(
+            f"Shipped quarantinable artifact to outbox: {os.path.basename(final_path)} "
+            f"with {len(shipped)} files: {', '.join(shipped) or '(none)'}",
+            "log-cmd",
+        )
+        if excluded:
+            log_event("Left out of the artifact: " + ", ".join(e["path"] for e in excluded), "log-cmd")
         return {
             "status": "success",
             "artifact": os.path.basename(final_path),
             "sha256": digest.hexdigest(),
             "bytes": size,
+            "files": shipped,
+            "excluded": excluded,
         }
     except Exception as e:
         if os.path.exists(temp_archive):

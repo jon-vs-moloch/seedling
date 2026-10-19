@@ -214,13 +214,38 @@ document.addEventListener('DOMContentLoaded', () => {
     // ---------------------------------------------------------------
     // Quarantine
     // ---------------------------------------------------------------
-    const STATUS_TONE = { quarantined: 'warn', applying: 'info', applied: 'ok', failed: 'danger' };
+    const STATUS_TONE = { quarantined: 'warn', applying: 'info', applied: 'ok', failed: 'danger', rejected: 'danger' };
+
+    // The candidate's parser score next to operator/'s current one
+    // (scripts/measure_cycle.py, run by the supervisor in a container).
+    // Read-only: it informs the Apply decision and never triggers it.
+    function scoreLine(u) {
+        const s = u.score;
+        if (!s) return '';
+        if (s.status === 'scoring') return '<div class="update-score">Scoring the candidate in a container…</div>';
+        if (s.status !== 'done') return `<div class="update-score">Not scored: ${escapeHtml(s.reason || s.status)}</div>`;
+        const c = s.candidate, b = s.baseline;
+        const tone = c.passed < b.passed || s.regressed.length ? 'danger' : c.passed > b.passed ? 'ok' : 'warn';
+        const delta = c.passed - b.passed;
+        return `<div class="update-score ${tone}">
+            <span>Parser score <strong>${c.passed}/${c.total}</strong> vs <span class="mono">operator/</span> now ${b.passed}/${b.total}
+            (${delta > 0 ? '+' : ''}${delta})</span>
+            <span>${s.fixed.length} fixed · ${s.regressed.length} regressed${s.parser_shipped ? '' : ' · parser not in artifact'}</span>
+        </div>`;
+    }
+
+    function unexpectedLine(u) {
+        const list = u.unexpected_files || [];
+        if (!list.length) return '';
+        return `<div class="update-unexpected">${list.length} ${list.length === 1 ? 'file is' : 'files are'} new to <span class="mono">${escapeHtml(u.target_codebase)}/</span>:
+            <span class="mono">${list.map((f) => escapeHtml(f.path)).join(', ')}</span></div>`;
+    }
 
     async function pollUpdates() {
         try {
             const data = await getJson('/api/updates');
             const updates = data.updates || [];
-            const key = JSON.stringify(updates.map((u) => [u.id, u.status]));
+            const key = JSON.stringify(updates.map((u) => [u.id, u.status, u.score && u.score.status]));
             if (key === lastUpdatesKey) return;
             lastUpdatesKey = key;
             $('updatesCount').textContent = updates.length;
@@ -235,13 +260,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="update-meta">
                         <span>${formatBytes(u.archive_bytes)} archive</span>
                         <span>${formatBytes(u.expanded_bytes)} expanded</span>
-                        <span>${u.members ?? '?'} entries</span>
+                        <span title="${escapeHtml((u.files || []).join('\n'))}">${u.members ?? '?'} entries</span>
                         <span class="mono" title="${escapeHtml(u.sha256)}">sha256 ${escapeHtml((u.sha256 || '').slice(0, 12))}…</span>
                         <span>${formatTime(u.detected_at)}</span>
                     </div>
                     <div class="update-actions">
                         ${u.status === 'quarantined' ? `<button class="btn small primary apply-update-btn" data-update="${escapeHtml(u.id)}" data-target="${escapeHtml(u.target_codebase)}">Apply</button>` : ''}
                     </div>
+                    ${scoreLine(u)}
+                    ${unexpectedLine(u)}
                     ${u.error ? `<div class="update-error">${escapeHtml(u.error)}</div>` : ''}
                 </div>`).join('');
         } catch (e) {}

@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -518,6 +519,366 @@ class RunCycleTests(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn(f"cannot reach http://127.0.0.1:{port}/api/ship_update", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
+
+
+# A stand-in for `docker run`, so container paths can be tested without a
+# container runtime. It maps each `-v HOST:CONTAINER` mount, runs the command
+# after the image on the host, and records its arguments. Modes: "ok" (the
+# mount works), "empty" (the runtime can't see the host path, so the mount is
+# an empty directory: what Colima does outside $HOME) and "copy" (the
+# container sees the files, but its writes never reach the host).
+FAKE_RUNTIME = r'''#!{python}
+import json, os, shutil, subprocess, sys, tempfile
+MODE, LOG, IMAGE = {mode!r}, {log!r}, "fake-image"
+args = sys.argv[1:]
+with open(LOG, "a") as f:
+    f.write(json.dumps(args) + "\n")
+if args[0] != "run":
+    sys.exit(0)
+at = args.index(IMAGE)
+options, command = args[:at], args[at + 1:]
+mounts, workdir, scratch = {{}}, None, []
+for i, arg in enumerate(options):
+    if arg == "-v":
+        host, inside = options[i + 1].split(":")[:2]
+        if MODE != "ok":
+            fake = tempfile.mkdtemp()
+            scratch.append(fake)
+            if MODE == "copy":
+                shutil.copytree(host, fake, dirs_exist_ok=True)
+            host = fake
+        mounts[inside] = host
+    if arg == "-w":
+        workdir = options[i + 1]
+
+def mapped(arg):
+    for inside, host in mounts.items():
+        if arg == inside or arg.startswith(inside + "/"):
+            return host + arg[len(inside):]
+    return arg
+
+command = [sys.executable if a == "python" else "-c" if a == "-lc" else mapped(a) for a in command]
+try:
+    code = subprocess.run(command, cwd=mapped(workdir) if workdir else None).returncode
+finally:
+    for path in scratch:
+        shutil.rmtree(path, ignore_errors=True)
+sys.exit(code)
+'''
+
+
+def make_fake_runtime(directory, mode):
+    """Write a fake container runtime; return (its path, the file it logs its calls to)."""
+    path = Path(directory) / f"fake-runtime-{mode}"
+    log = Path(directory) / f"fake-runtime-{mode}.log"
+    path.write_text(FAKE_RUNTIME.format(python=sys.executable, mode=mode, log=str(log)))
+    path.chmod(0o755)
+    return str(path), log
+
+
+def runtime_calls(log):
+    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+
+class ZenCodeContainerTests(unittest.TestCase):
+    """The mount check (defect 1), the runtime setting (defect 2) and the ship policy (defect 3)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.zen = load_module("zencode_app_container", ROOT / "zencode" / "app.py", ROOT / "zencode")
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.sandbox = self.tmp / "sandbox"
+        self.sandbox.mkdir()
+        state = self.zen.sandbox_state
+        saved = dict(state)
+        self.addCleanup(state.update, saved)
+        state["sandbox_dir"] = str(self.sandbox)
+        self.zen.verified_mounts.clear()
+        self.addCleanup(self.zen.verified_mounts.clear)
+
+    def use_runtime(self, mode):
+        runtime, log = make_fake_runtime(self.tmp, mode)
+        for name, value in (("SANDBOX_MODE", "container"), ("SANDBOX_RUNTIME", runtime), ("SANDBOX_IMAGE", "fake-image")):
+            patcher = mock.patch.object(self.zen, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return log
+
+    def assert_no_probe_files(self):
+        self.assertEqual([p.name for p in self.sandbox.iterdir() if p.name.startswith(".seedling-")], [])
+
+    def test_an_unmounted_sandbox_fails_closed(self):
+        log = self.use_runtime("empty")
+        result = self.zen.run_bash("echo hi > made.txt")
+        self.assertIn("Container mount check failed", result["error"])
+        self.assertIn("SEEDLING_RUNTIME_DIR", result["error"])
+        # Only the probe ran; the agent's command never did.
+        self.assertEqual(len(runtime_calls(log)), 1)
+        self.assertFalse((self.sandbox / "made.txt").exists())
+        self.assert_no_probe_files()
+        # It is not remembered as checked: the next command checks again.
+        self.zen.run_bash("true")
+        self.assertEqual(len(runtime_calls(log)), 2)
+
+    def test_container_writes_that_never_reach_the_host_fail_closed(self):
+        (self.sandbox / "action_parser.py").write_text("x = 1\n")
+        log = self.use_runtime("copy")
+        result = self.zen.run_bash("ls")
+        self.assertIn("Container mount check failed", result["error"])
+        self.assertEqual(len(runtime_calls(log)), 1)
+        self.assert_no_probe_files()
+
+    def test_a_working_mount_is_checked_once_then_commands_run(self):
+        log = self.use_runtime("ok")
+        result = self.zen.run_bash("echo hi > made.txt")
+        self.assertEqual(result.get("returncode"), 0, result)
+        self.assertEqual((self.sandbox / "made.txt").read_text(), "hi\n")
+        self.zen.run_bash("true")
+        calls = runtime_calls(log)
+        self.assertEqual(len(calls), 3)  # probe, command, command
+        self.assertIn(".seedling-mount-probe-", calls[0][-1])
+        for call in calls:
+            self.assertEqual(call[call.index("--network") + 1], self.zen.SANDBOX_NETWORK)
+            self.assertIn("--read-only", call)
+        self.assert_no_probe_files()
+
+    def test_init_reports_a_broken_mount(self):
+        from fastapi.testclient import TestClient
+
+        self.use_runtime("empty")
+        client = TestClient(self.zen.app, base_url="http://127.0.0.1:8000")
+        response = client.post("/api/init", json={"base_url": "http://127.0.0.1:1", "model_id": "m"})
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Container mount check failed", response.json()["error"])
+        self.assert_no_probe_files()
+
+    def test_container_runtime_setting_is_used(self):
+        runtime, _ = make_fake_runtime(self.tmp, "ok")
+        with mock.patch.dict(os.environ, {"SEEDLING_CONTAINER_RUNTIME": runtime}):
+            fresh = load_module("zencode_app_runtime", ROOT / "zencode" / "app.py", ROOT / "zencode")
+        self.assertEqual(fresh.container_runtime(), runtime)
+
+    def test_ship_leaves_out_scratch_and_reports_what_shipped(self):
+        files = {
+            "action_parser.py": "x = 1\n",
+            "README.md": "docs\n",
+            "scratch/check_parser.py": "print(1)\n",
+            "scratch/examples.txt": "{}\n",
+            "notes.tmp": "x",
+            "lib/__pycache__/a.cpython-312.pyc": "x",
+            "lib/helper.py": "y = 2\n",
+            "run.log": "x",
+            ".seedling-mount-probe-0": "x",
+        }
+        for rel, text in files.items():
+            (self.sandbox / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.sandbox / rel).write_text(text)
+        from fastapi.testclient import TestClient
+
+        client = TestClient(self.zen.app, base_url="http://127.0.0.1:8000")
+        body = client.post("/api/ship_update").json()
+        self.assertEqual(body["files"], ["README.md", "action_parser.py", "lib/helper.py"])
+        excluded = {e["path"] for e in body["excluded"]}
+        self.assertEqual(excluded, {".seedling-mount-probe-0", "notes.tmp", "run.log", "scratch/", "lib/__pycache__/"})
+        with tarfile.open(self.sandbox / "outbox" / body["artifact"]) as archive:
+            self.assertEqual(sorted(archive.getnames()), body["files"])
+
+    def test_system_prompt_names_the_scratch_dir(self):
+        self.assertIn("scratch/", self.zen.SYSTEM_PROMPT)
+
+
+class ArtifactPolicyTests(unittest.TestCase):
+    """Quarantine refuses scratch paths and reports files new to the target (defect 3)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sup_module = load_module("supervisor_main_policy", ROOT / "supervisor" / "main.py", ROOT / "supervisor")
+        cls.zen = load_module("zencode_app_policy", ROOT / "zencode" / "app.py", ROOT / "zencode")
+
+    def make_tar(self, names):
+        handle = tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False)
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        with tarfile.open(handle.name, "w:gz") as archive:
+            for name in names:
+                info = tarfile.TarInfo(name)
+                info.size = 1
+                archive.addfile(info, io.BytesIO(b"x"))
+        return handle.name
+
+    def test_zencode_and_supervisor_share_one_policy(self):
+        self.assertEqual(self.zen.ARTIFACT_EXCLUDED_DIRS, self.sup_module.ARTIFACT_EXCLUDED_DIRS)
+        self.assertEqual(self.zen.ARTIFACT_EXCLUDED_FILES, self.sup_module.ARTIFACT_EXCLUDED_FILES)
+
+    def test_quarantine_refuses_paths_that_never_ship(self):
+        sup = self.sup_module.Supervisor()
+        for name in ("scratch/check_parser.py", "notes.tmp", "deep/tmp/x.py", ".seedling-mount-probe-1", "a/__pycache__/m.pyc"):
+            with self.assertRaises(ValueError, msg=name):
+                sup._validate_archive(self.make_tar(["action_parser.py", name]))
+
+    def test_cycle_one_scratch_files_are_reported(self):
+        # The artifact cycle 1 applied: the parser plus three scratch files.
+        names = ["README.md", "action_parser.py", "check_parser.py", "examples.txt", "parse_action.py"]
+        result = self.sup_module.Supervisor()._validate_archive(self.make_tar(names), str(ROOT / "operator"))
+        self.assertEqual(result["files"], sorted(names))
+        self.assertEqual(
+            [u["path"] for u in result["unexpected_files"]],
+            ["check_parser.py", "examples.txt", "parse_action.py"],
+        )
+        self.assertTrue(all("new file" in u["reason"] for u in result["unexpected_files"]))
+
+    def test_a_refused_artifact_shows_in_the_quarantine_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sup = self.sup_module.Supervisor()
+            sup.quarantine_dir = os.path.join(tmp, "quarantine")
+            os.makedirs(sup.quarantine_dir)
+            for name in ("zencode_a", "zencode_b"):
+                sandbox = os.path.join(tmp, name)
+                os.makedirs(os.path.join(sandbox, "outbox"))
+                sup.processes[name] = self.sup_module.ManagedProcess(name, "zencode", 0, tmp, [], sandbox_dir=sandbox)
+            bad = self.make_tar(["action_parser.py", "scratch/x.py"])
+            shutil.copyfile(bad, os.path.join(tmp, "zencode_a", "outbox", "update.tar.gz"))
+            updates = sup.poll_outboxes()
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["status"], "rejected")
+        self.assertIn("never ships", updates[0]["error"])
+        # A refused artifact has no Apply.
+        sup.update_history.extend(updates)
+        with self.assertRaises(ValueError):
+            sup.apply_update(updates[0]["id"])
+
+
+class CandidateScoringTests(unittest.TestCase):
+    """Pre-apply scoring in a container (defect 4) and the hardened measurement (F-03)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sup_module = load_module("supervisor_main_score", ROOT / "supervisor" / "main.py", ROOT / "supervisor")
+        cls.measure = cls.sup_module.measure
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+
+    def quarantined(self, parser_source, extra=()):
+        sup = self.sup_module.Supervisor()
+        sup.base_dir = str(self.tmp / "stack")
+        sup.quarantine_dir = os.path.join(sup.base_dir, "quarantine")
+        os.makedirs(sup.quarantine_dir)
+        artifact = self.tmp / "update.tar.gz"
+        with tarfile.open(artifact, "w:gz") as archive:
+            for name, text in (("action_parser.py", parser_source), *extra):
+                data = text.encode()
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+        with mock.patch.object(sup, "_start_scoring") as start:
+            update = sup.quarantine_artifact("zencode_a", "operator", str(artifact))
+        start.assert_called_once_with(update)
+        self.assertEqual(update["score"], {"status": "scoring"})
+        return sup, update
+
+    def score(self, sup, update, runtime):
+        with mock.patch.object(self.sup_module, "sandbox_runtime", return_value=runtime), \
+                mock.patch.dict(os.environ, {"SEEDLING_SANDBOX_IMAGE": "fake-image"}):
+            sup._score_candidate(update)
+        return update["score"]
+
+    def test_scores_the_candidate_against_operator_now_without_applying(self):
+        operator_parser = (ROOT / "operator" / "action_parser.py").read_bytes()
+        sup, update = self.quarantined("def parse_action(reply):\n    raise ValueError('no')\n")
+        runtime, log = make_fake_runtime(self.tmp, "ok")
+        score = self.score(sup, update, runtime)
+        self.assertEqual(score["status"], "done", score)
+        corpus = self.measure.load_corpus(self.measure.DEFAULT_CORPUS)
+        refusals = sum(1 for case in corpus if case["expect"] == "refuse")
+        now = self.measure.score_parser(str(ROOT / "operator"), self.measure.DEFAULT_CORPUS)
+        self.assertEqual(score["baseline"], {"passed": now["passed"], "total": len(corpus)})
+        self.assertEqual(score["candidate"], {"passed": refusals, "total": len(corpus)})
+        self.assertTrue(score["regressed"])
+        self.assertTrue(score["parser_shipped"])
+        self.assertRegex(score["measured_at"], r"Z$")
+        # Read-only: still quarantined, operator/ untouched, scratch removed.
+        self.assertEqual(update["status"], "quarantined")
+        self.assertEqual((ROOT / "operator" / "action_parser.py").read_bytes(), operator_parser)
+        self.assertEqual(sorted(os.listdir(sup.base_dir)), ["quarantine"])
+        # Both parsers ran in containers: no network, read-only, parser mounted read-only.
+        calls = runtime_calls(log)
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            self.assertEqual(call[call.index("--network") + 1], "none")
+            self.assertIn("--read-only", call)
+            self.assertTrue(call[call.index("-v") + 1].endswith(":/candidate:ro"))
+
+    def test_no_container_runtime_means_no_score(self):
+        sup, update = self.quarantined("def parse_action(reply):\n    return {}\n")
+        score = self.score(sup, update, None)
+        self.assertEqual(score["status"], "unavailable")
+        self.assertIn("container", score["reason"])
+
+    def test_an_unmounted_scoring_dir_gives_an_error_not_a_score(self):
+        sup, update = self.quarantined("def parse_action(reply):\n    return {}\n")
+        runtime, _ = make_fake_runtime(self.tmp, "empty")
+        score = self.score(sup, update, runtime)
+        self.assertEqual(score["status"], "error")
+        self.assertNotIn("candidate", score)
+
+    def test_a_forged_result_line_changes_nothing(self):
+        operator_dir = self.tmp / "operator"
+        operator_dir.mkdir()
+        forged = json.dumps({"outcomes": {"a": {"kind": "action", "value": {"action": "done"}}}})
+        (operator_dir / "action_parser.py").write_text(
+            "import sys\n"
+            f"print({forged!r})\n"
+            f"print('SEEDLING-OUTCOMES ' + {forged!r})\n"
+            "def parse_action(reply):\n"
+            f"    print({forged!r})\n"
+            "    raise KeyError('wrong')\n"
+        )
+        corpus = self.tmp / "corpus.jsonl"
+        corpus.write_text(json.dumps({"id": "a", "reply": "x", "expect": {"action": "done"}}) + "\n")
+        result = self.measure.score_parser(str(operator_dir), str(corpus))
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["passed"], 0)
+        self.assertEqual(result["cases"][0]["outcome"]["kind"], "crash")
+
+    def test_the_parser_is_never_shown_the_expected_answers(self):
+        operator_dir = self.tmp / "operator"
+        operator_dir.mkdir()
+        (operator_dir / "action_parser.py").write_text(
+            "import sys\n"
+            "def parse_action(reply):\n"
+            "    return {'action': 'done', 'argv': sys.argv[1:], 'stdin': sys.stdin.read()}\n"
+        )
+        corpus = self.tmp / "corpus.jsonl"
+        corpus.write_text(json.dumps({"id": "a", "reply": "x", "expect": {"action": "done"}}) + "\n")
+        result = self.measure.score_parser(str(operator_dir), str(corpus))
+        value = result["cases"][0]["outcome"]["value"]
+        self.assertEqual(value["argv"], [str(operator_dir / "action_parser.py")])
+        self.assertEqual(value["stdin"], "")
+        self.assertEqual(self.measure.child_request([{"id": "a", "reply": "x", "expect": "refuse"}]), {"replies": [{"id": "a", "reply": "x"}]})
+
+    def test_a_result_that_does_not_cover_the_replies_is_refused(self):
+        cases = [{"id": "a"}, {"id": "b"}]
+        for stdout in ("", "nonsense", json.dumps({"outcomes": {"a": {"kind": "action"}}}),
+                       json.dumps({"outcomes": {"a": {"kind": "action"}, "b": {"kind": "pass"}}})):
+            with self.assertRaises(ValueError, msg=stdout):
+                self.measure.read_outcomes(stdout, cases)
+
+    def test_dashboard_shows_the_score_read_only(self):
+        app_js = (ROOT / "supervisor" / "static" / "app.js").read_text()
+        self.assertIn("scoreLine(u)", app_js)
+        self.assertIn("unexpectedLine(u)", app_js)
+        # Apply is only ever sent from the Apply button's click handler.
+        self.assertEqual(app_js.count("/apply`"), 1)
+        fixture = json.loads((ROOT / "supervisor" / "static" / "demo" / "fixture.json").read_text())
+        scored = [u for u in fixture["updates"] if u.get("score", {}).get("status") == "done"]
+        self.assertTrue(scored)
 
 
 class UiAssetTests(unittest.TestCase):

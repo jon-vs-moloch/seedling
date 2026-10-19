@@ -21,6 +21,9 @@ import json
 import tarfile
 import hashlib
 import uuid
+import fnmatch
+import threading
+import importlib.util
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Query
 from fastapi.staticfiles import StaticFiles
@@ -41,6 +44,45 @@ RUNTIME_ROOT = os.path.join(PROJECT_ROOT, ".seedling_runtime")
 MAX_ARTIFACT_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_BYTES", str(25 * 1024 * 1024)))
 MAX_ARTIFACT_EXPANDED_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_EXPANDED_BYTES", str(50 * 1024 * 1024)))
 MAX_ARTIFACT_MEMBERS = int(os.environ.get("SEEDLING_MAX_ARTIFACT_MEMBERS", "1000"))
+
+# Paths that never ship. ZenCode's Ship Update leaves these out
+# (zencode/app.py keeps the same lists; a test keeps them equal), so an
+# artifact that still holds one did not come from Ship Update and is refused.
+# Directories match by name at any depth, files by name pattern.
+ARTIFACT_EXCLUDED_DIRS = {
+    ".git", "venv", ".venv", "node_modules", "__pycache__", "outbox",
+    "scratch", "tmp", ".pytest_cache", ".mypy_cache",
+}
+ARTIFACT_EXCLUDED_FILES = ("*.tmp", "*.pyc", "*.pyo", "*.log", "*.swp", "*~", ".DS_Store", ".seedling-*")
+
+
+def artifact_exclusion(rel_path, is_dir=False):
+    """Why an archive path never ships, or None if it may."""
+    parts = rel_path.replace(os.sep, "/").split("/")
+    for part in parts if is_dir else parts[:-1]:
+        if part in ARTIFACT_EXCLUDED_DIRS:
+            return f"{part}/ is not shipped"
+    if is_dir:
+        return None
+    if any(fnmatch.fnmatchcase(parts[-1], pattern) for pattern in ARTIFACT_EXCLUDED_FILES):
+        return "scratch, temp or cache file"
+    return None
+
+
+# The cycle measurement (scripts/measure_cycle.py), used to score a
+# quarantined operator/ artifact before anyone applies it.
+_measure_spec = importlib.util.spec_from_file_location(
+    "seedling_measure_cycle", os.path.join(PROJECT_ROOT, "scripts", "measure_cycle.py")
+)
+measure = importlib.util.module_from_spec(_measure_spec)
+_measure_spec.loader.exec_module(measure)
+
+
+def sandbox_runtime():
+    """The container runtime commands run in, or None outside container mode or without one."""
+    if os.environ.get("SEEDLING_SANDBOX_MODE", "container").lower() != "container":
+        return None
+    return os.environ.get("SEEDLING_CONTAINER_RUNTIME") or shutil.which("docker") or shutil.which("podman")
 
 # Sandbox settings a ZenCode child reads (see README.md, "Settings"). The
 # supervisor starts children with an allowlisted environment, so each one
@@ -375,6 +417,16 @@ class Supervisor:
                     updates.append(self.quarantine_artifact(name, target, artifact_path))
                 except Exception as e:
                     self.log(f"Artifact quarantine failed for {artifact_name}: {e}", source="supervisor", level="error")
+                    # Show the refusal in the Quarantine card too, not only in the log.
+                    updates.append({
+                        "id": uuid.uuid4().hex[:12],
+                        "source": name,
+                        "target_codebase": target,
+                        "artifact_path": artifact_path,
+                        "status": "rejected",
+                        "detected_at": utc_now(),
+                        "error": str(e),
+                    })
         return updates
 
     def _artifact_key(self, artifact):
@@ -388,7 +440,13 @@ class Supervisor:
                 digest.update(chunk)
         return digest.hexdigest()
 
-    def _validate_archive(self, artifact):
+    def _validate_archive(self, artifact, target_dir=None):
+        """Check an artifact's size, entries and paths. Raises ValueError.
+
+        With target_dir (the codebase Apply would copy it over), also lists
+        every file that is not in that codebase yet as unexpected, so a human
+        sees it before Apply. New files are allowed, but never silently.
+        """
         if not tarfile.is_tarfile(artifact):
             raise ValueError("Update artifacts must be tar archives")
         archive_size = os.path.getsize(artifact)
@@ -396,6 +454,7 @@ class Supervisor:
             raise ValueError(f"Artifact is {archive_size} bytes; limit is {MAX_ARTIFACT_BYTES}")
 
         expanded_bytes = 0
+        files, unexpected = [], []
         with tarfile.open(artifact, "r:*") as archive:
             members = archive.getmembers()
             if len(members) > MAX_ARTIFACT_MEMBERS:
@@ -406,19 +465,33 @@ class Supervisor:
                 normalized = os.path.normpath(member.name)
                 if normalized.startswith("..") or os.path.isabs(normalized):
                     raise ValueError(f"Archive member escapes target: {member.name}")
+                excluded = artifact_exclusion(normalized, member.isdir())
+                if excluded:
+                    raise ValueError(f"Artifact holds {member.name}, which never ships ({excluded})")
+                if member.isfile():
+                    files.append(normalized)
+                    if target_dir and not os.path.isfile(os.path.join(target_dir, normalized)):
+                        unexpected.append({"path": normalized, "reason": f"new file: not in {os.path.basename(target_dir)}/ yet"})
                 expanded_bytes += max(member.size, 0)
                 if expanded_bytes > MAX_ARTIFACT_EXPANDED_BYTES:
                     raise ValueError(
                         f"Artifact expands past {MAX_ARTIFACT_EXPANDED_BYTES} bytes"
                     )
-        return {"archive_bytes": archive_size, "expanded_bytes": expanded_bytes, "members": len(members)}
+        return {
+            "archive_bytes": archive_size,
+            "expanded_bytes": expanded_bytes,
+            "members": len(members),
+            "files": sorted(files),
+            "unexpected_files": unexpected,
+        }
 
     def quarantine_artifact(self, source, target, artifact):
         artifact_id = uuid.uuid4().hex[:12]
         safe_name = os.path.basename(artifact)
         staged_path = os.path.join(self.quarantine_dir, f"{artifact_id}-{safe_name}")
         shutil.copy2(artifact, staged_path)
-        validation = self._validate_archive(staged_path)
+        target_src = ZENCODE_SRC if target == "zencode" else OPERATOR_SRC
+        validation = self._validate_archive(staged_path, target_src)
         digest = self._sha256(staged_path)
         update = {
             "id": artifact_id,
@@ -435,7 +508,75 @@ class Supervisor:
             f"Quarantined artifact {artifact_id} from {source} for {target}/ ({validation['archive_bytes']} bytes)",
             source="supervisor",
         )
+        if validation["unexpected_files"]:
+            self.log(
+                f"Artifact {artifact_id} has {len(validation['unexpected_files'])} files new to {target}/: "
+                + ", ".join(u["path"] for u in validation["unexpected_files"]),
+                source="supervisor",
+                level="warn",
+            )
+        if target == "operator":
+            update["score"] = {"status": "scoring"}
+            self._start_scoring(update)
+        else:
+            update["score"] = {"status": "unavailable", "reason": f"No measurement for {target}/ yet."}
         return update
+
+    def _start_scoring(self, update):
+        threading.Thread(target=self._score_candidate, args=(update,), daemon=True).start()
+
+    def _score_candidate(self, update):
+        """Score a quarantined operator/ artifact against operator/ as it is now.
+
+        Read-only: it never applies anything, and Apply stays a separate human
+        action. The candidate's parser is code a model wrote, so it only ever
+        runs in a one-shot container (scripts/measure_cycle.py: no network,
+        read-only, the parser mounted read-only); without a container runtime
+        there is no score. The result replaces update["score"] in one step.
+        """
+        runtime = sandbox_runtime()
+        if not runtime:
+            update["score"] = {
+                "status": "unavailable",
+                "reason": "Scoring runs the candidate's code, so it needs the container sandbox (Docker or Podman).",
+            }
+            return
+        work = None
+        try:
+            # Under the stack workspace, which the container runtime must be able to mount.
+            work = tempfile.mkdtemp(prefix="score_", dir=self.base_dir)
+            extracted = os.path.join(work, "artifact")
+            baseline_dir = os.path.join(work, "baseline")
+            candidate_dir = os.path.join(work, "candidate")
+            for d in (extracted, baseline_dir, candidate_dir):
+                os.makedirs(d)
+            self._safe_extract_archive(update["quarantine_path"], extracted)
+            current = os.path.join(OPERATOR_SRC, "action_parser.py")
+            shipped = os.path.join(extracted, "action_parser.py")
+            shipped_parser = os.path.isfile(shipped) and not os.path.islink(shipped)
+            shutil.copyfile(current, os.path.join(baseline_dir, "action_parser.py"))
+            shutil.copyfile(shipped if shipped_parser else current, os.path.join(candidate_dir, "action_parser.py"))
+            image = os.environ.get("SEEDLING_SANDBOX_IMAGE", "python:3.12-slim")
+            baseline = measure.score_parser(baseline_dir, measure.DEFAULT_CORPUS, runtime, image)
+            candidate = measure.score_parser(candidate_dir, measure.DEFAULT_CORPUS, runtime, image)
+            score = measure.compare(baseline, candidate)
+            score["parser_shipped"] = shipped_parser
+            score["measured_at"] = utc_now()
+        except Exception as e:
+            score = {"status": "error", "reason": str(e)}
+        finally:
+            if work:
+                shutil.rmtree(work, ignore_errors=True)
+        update["score"] = score
+        if score["status"] == "done":
+            self.log(
+                f"Scored artifact {update['id']}: parser {score['candidate']['passed']}/{score['candidate']['total']}, "
+                f"now {score['baseline']['passed']}/{score['baseline']['total']} "
+                f"({len(score['fixed'])} fixed, {len(score['regressed'])} regressed). Not applied.",
+                source="supervisor",
+            )
+        else:
+            self.log(f"Artifact {update['id']} not scored: {score['reason']}", source="supervisor", level="warn")
 
     def teardown(self):
         self.stop_all()

@@ -436,6 +436,90 @@ class MeasureCycleTests(unittest.TestCase):
         self.assertIn("exited", result["error"])
 
 
+class SupervisorEnvTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.sup_module = load_module("supervisor_main_env", ROOT / "supervisor" / "main.py", ROOT / "supervisor")
+
+    def test_container_runtime_and_caps_reach_zencode(self):
+        settings = {
+            "SEEDLING_CONTAINER_RUNTIME": "/opt/example/bin/docker",
+            "SEEDLING_SANDBOX_CPUS": "2",
+            "SEEDLING_SANDBOX_MEMORY": "1g",
+            "SEEDLING_SANDBOX_PIDS": "64",
+            "SEEDLING_SANDBOX_TIMEOUT": "45",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"SEEDLING_RUNTIME_DIR": tmp, **settings}):
+                sup = self.sup_module.Supervisor()
+                with mock.patch.object(sup, "_ensure_venv"):
+                    sup.initialize()
+                for name in ("zencode_a", "zencode_b"):
+                    env = sup._process_env(sup.processes[name])
+                    for key, value in settings.items():
+                        self.assertEqual(env.get(key), value, (name, key))
+                    self.assertEqual(env["ZENCODE_SANDBOX_DIR"], sup.processes[name].sandbox_dir)
+                # Operators run no containers and get none of these.
+                self.assertNotIn("SEEDLING_CONTAINER_RUNTIME", sup._process_env(sup.processes["operator_a"]))
+
+    def test_unset_settings_are_not_forwarded(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for name in self.sup_module.ZENCODE_FORWARDED_ENV:
+                os.environ.pop(name, None)
+            env = self.sup_module.zencode_env("/sandbox")
+        for name in self.sup_module.ZENCODE_FORWARDED_ENV:
+            self.assertNotIn(name, env)
+        self.assertEqual(env["ZENCODE_SANDBOX_DIR"], "/sandbox")
+
+
+class SupervisorTimeTests(unittest.TestCase):
+    UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sup_module = load_module("supervisor_main_time", ROOT / "supervisor" / "main.py", ROOT / "supervisor")
+
+    def test_receipts_and_logs_are_utc(self):
+        sup = self.sup_module.Supervisor()
+        with tempfile.TemporaryDirectory() as tmp:
+            sup.quarantine_dir = tmp
+            artifact = Path(tmp) / "update.tar"
+            with tarfile.open(artifact, "w") as archive:
+                info = tarfile.TarInfo("app.py")
+                info.size = 1
+                archive.addfile(info, io.BytesIO(b"x"))
+            update = sup.quarantine_artifact("zencode_b", "zencode", str(artifact))
+        self.assertRegex(update["detected_at"], self.UTC)
+        self.assertTrue(sup.logs)
+        for entry in sup.logs:
+            self.assertRegex(entry["ts"], self.UTC)
+
+    def test_no_naive_local_time_in_the_supervisor(self):
+        source = (ROOT / "supervisor" / "main.py").read_text()
+        self.assertNotIn("datetime.now()", source)
+
+
+class RunCycleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.run_cycle = load_module("run_cycle", ROOT / "scripts" / "run_cycle.py", ROOT)
+
+    def test_a_stopped_server_fails_clearly(self):
+        import socket
+
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        # Nothing listens on the port now, so the connection is refused.
+        with tempfile.TemporaryDirectory() as tmp:
+            stderr = io.StringIO()
+            with mock.patch("sys.stderr", stderr):
+                code = self.run_cycle.main(["--zencode", f"http://127.0.0.1:{port}", "ship", "--out", tmp])
+        self.assertEqual(code, 3)
+        self.assertIn(f"cannot reach http://127.0.0.1:{port}/api/ship_update", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+
 class UiAssetTests(unittest.TestCase):
     UI_FILES = [
         "supervisor/static/index.html", "supervisor/static/app.js", "supervisor/static/style.css",

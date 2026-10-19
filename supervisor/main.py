@@ -21,7 +21,7 @@ import json
 import tarfile
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response, FileResponse
@@ -42,6 +42,34 @@ MAX_ARTIFACT_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_BYTES", str(25 * 
 MAX_ARTIFACT_EXPANDED_BYTES = int(os.environ.get("SEEDLING_MAX_ARTIFACT_EXPANDED_BYTES", str(50 * 1024 * 1024)))
 MAX_ARTIFACT_MEMBERS = int(os.environ.get("SEEDLING_MAX_ARTIFACT_MEMBERS", "1000"))
 
+# Sandbox settings a ZenCode child reads (see README.md, "Settings"). The
+# supervisor starts children with an allowlisted environment, so each one
+# has to be forwarded explicitly. Unset ones are left out, so ZenCode's own
+# default applies.
+ZENCODE_FORWARDED_ENV = (
+    "SEEDLING_CONTAINER_RUNTIME",
+    "SEEDLING_SANDBOX_CPUS",
+    "SEEDLING_SANDBOX_MEMORY",
+    "SEEDLING_SANDBOX_PIDS",
+    "SEEDLING_SANDBOX_TIMEOUT",
+)
+
+
+def zencode_env(sandbox_dir):
+    """The environment extras for one ZenCode child: its sandbox and the sandbox settings."""
+    env = {
+        "ZENCODE_SANDBOX_DIR": sandbox_dir,
+        "SEEDLING_SANDBOX_MODE": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
+        "SEEDLING_SANDBOX_NETWORK": os.environ.get("SEEDLING_SANDBOX_NETWORK", "none"),
+        "SEEDLING_SANDBOX_IMAGE": os.environ.get("SEEDLING_SANDBOX_IMAGE", "python:3.12-slim"),
+    }
+    for name in ZENCODE_FORWARDED_ENV:
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return env
+
+
 # Lane A's ZenCode improves operator/. Its sandbox starts with copies of the
 # operator's docs and of the one file it is asked to improve, so the agent
 # edits the current source instead of rebuilding it from nothing. These are
@@ -54,6 +82,11 @@ SANDBOX_A_SEED = (OPERATOR_SRC, ("README.md", "action_parser.py"))
 # ---------------------------------------------------------------------------
 # Process registry
 # ---------------------------------------------------------------------------
+
+def utc_now():
+    """Now, in UTC, as ISO-8601 with a Z suffix (receipts must not depend on the host's timezone)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 class ManagedProcess:
     """Tracks a subprocess managed by the Supervisor."""
@@ -96,7 +129,7 @@ class Supervisor:
 
     def log(self, msg, source="supervisor", level="info"):
         entry = {
-            "ts": datetime.now().isoformat(),
+            "ts": utc_now(),
             "source": source,
             "level": level,
             "msg": msg,
@@ -184,12 +217,7 @@ class Supervisor:
             port=8000,
             cwd=ZENCODE_SRC,
             cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8000", "--no-access-log"],
-            env_extras={
-                "ZENCODE_SANDBOX_DIR": sandbox_a,
-                "SEEDLING_SANDBOX_MODE": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
-                "SEEDLING_SANDBOX_NETWORK": os.environ.get("SEEDLING_SANDBOX_NETWORK", "none"),
-                "SEEDLING_SANDBOX_IMAGE": os.environ.get("SEEDLING_SANDBOX_IMAGE", "python:3.12-slim"),
-            },
+            env_extras=zencode_env(sandbox_a),
             sandbox_dir=sandbox_a,
         )
         self.processes["zencode_b"] = ManagedProcess(
@@ -198,12 +226,7 @@ class Supervisor:
             port=8001,
             cwd=ZENCODE_SRC,
             cmd=[ZENCODE_PYTHON, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8001", "--no-access-log"],
-            env_extras={
-                "ZENCODE_SANDBOX_DIR": sandbox_b,
-                "SEEDLING_SANDBOX_MODE": os.environ.get("SEEDLING_SANDBOX_MODE", "container"),
-                "SEEDLING_SANDBOX_NETWORK": os.environ.get("SEEDLING_SANDBOX_NETWORK", "none"),
-                "SEEDLING_SANDBOX_IMAGE": os.environ.get("SEEDLING_SANDBOX_IMAGE", "python:3.12-slim"),
-            },
+            env_extras=zencode_env(sandbox_b),
             sandbox_dir=sandbox_b,
         )
 
@@ -276,7 +299,7 @@ class Supervisor:
             raise
         mp.log_file = log_file
         mp.status = "running"
-        mp.started_at = datetime.now().isoformat()
+        mp.started_at = utc_now()
         self.log(f"{name} started (PID {mp.process.pid})", source=name)
 
     def stop_process(self, name):
@@ -405,7 +428,7 @@ class Supervisor:
             "quarantine_path": staged_path,
             "sha256": digest,
             "status": "quarantined",
-            "detected_at": datetime.now().isoformat(),
+            "detected_at": utc_now(),
             **validation,
         }
         self.log(
@@ -509,7 +532,7 @@ class Supervisor:
 
         self.log(f"Applying approved update {update_id} to {target_src}...", source="supervisor")
         update["status"] = "applying"
-        update["approved_at"] = datetime.now().isoformat()
+        update["approved_at"] = utc_now()
 
         for name in affected:
             self.stop_process(name)
@@ -518,7 +541,7 @@ class Supervisor:
             self._apply_artifact_contents(artifact, target_src)
 
             update["status"] = "applied"
-            update["applied_at"] = datetime.now().isoformat()
+            update["applied_at"] = utc_now()
             self.log(f"Applied update {update_id}.", source="supervisor")
         except Exception as e:
             update["status"] = "failed"

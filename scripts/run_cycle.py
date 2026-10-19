@@ -14,6 +14,7 @@ the UIs call; it never touches a sandbox or the source tree itself.
 ZenCode A is http://127.0.0.1:8000 and the supervisor http://127.0.0.1:7000
 unless --zencode or --supervisor say otherwise. Each step writes what it
 sent and got back, with UTC times, as JSON under --out.
+If a server does not answer, it exits 3 with a one-line error.
 """
 import argparse
 import json
@@ -29,6 +30,10 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 APPLY_TARGETS = ("operator", "zencode")
 
 
+class Unreachable(Exception):
+    """A server did not answer (not running, wrong port, or timed out)."""
+
+
 def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -42,6 +47,9 @@ def call(method, url, body=None, timeout=60):
             status, raw = response.status, response.read().decode()
     except urllib.error.HTTPError as e:
         status, raw = e.code, e.read().decode()
+    except (urllib.error.URLError, OSError) as e:
+        reason = getattr(e, "reason", e)
+        raise Unreachable(f"cannot reach {url}: {reason}") from None
     try:
         return status, json.loads(raw) if raw else None
     except json.JSONDecodeError:
@@ -165,7 +173,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     args.zencode = args.zencode.rstrip("/")
     args.supervisor = args.supervisor.rstrip("/")
-    return {"chat": cmd_chat, "ship": cmd_ship, "apply": cmd_apply}[args.command](args)
+    try:
+        return {"chat": cmd_chat, "ship": cmd_ship, "apply": cmd_apply}[args.command](args)
+    except Unreachable as e:
+        print(f"{e}. Is the Seedling stack running?", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":
